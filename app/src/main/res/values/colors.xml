@@ -2,6 +2,8 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="ic_launcher_bg">#00000000</color>
+    <color name="ic_launcher_fg">#84FFFFFF</color>
 
     <color name="titleBar">#FFFFFF</color>
     <color name="newConvoBG">#80FFFFFF</color>
@@ -21,13 +23,19 @@
     <color name="convoIconTintColor">#888888</color>
 
     <color name="InputTextBackground">#33FFFFFF</color>
+    <color name="MediaButtonColor">#9AFFFFFF</color>
+
 
     <color name="TimeColor">#AAAAAA</color>
     <color name="AutoReplyColor">#9AFFFFFF</color>
 
     <color name="BorderBubbleColor">#C5FFFFFF</color>
     <color name="RedBorderBubbleColor">#B8FF5252</color>
-    <color name="ReceivedMessageBackgroundColor">#1AFFFFFF</color>
+    <color name="ReceivedMessageBackgroundColor">#00FFFFFF</color>
+    <color name="bg_date_separator">#00FFFFFF</color>
+    <color name="date_separator_border">#6EFFFFFF</color>
+    <color name="date_separator_text_color">#7EFFFFFF</color>
+
 
 
 

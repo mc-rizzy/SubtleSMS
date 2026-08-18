@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="18dp"
+    android:paddingBottom="10dp">
+
+    <View
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1"
+        android:background="@color/date_separator_border" />
+
+    <TextView
+        android:id="@+id/tvDateLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="10dp"
+        android:background="@drawable/bg_date_separator"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="4dp"
+        android:fontFamily="sans-serif-medium"
+        android:letterSpacing="0.02"
+        android:text="Today"
+        android:textColor="@color/date_separator_text_color"
+        android:textSize="11.5sp" />
+
+    <View
+        android:layout_width="0dp"
+        android:layout_height="1dp"
+        android:layout_weight="1"
+        android:background="@color/date_separator_border" />
+
+</LinearLayout>

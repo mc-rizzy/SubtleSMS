@@ -15,25 +15,83 @@
         android:orientation="vertical">
 
         <!-- Header Bar -->
-        <TextView
-            android:id="@+id/tvMainTitle"
+        <LinearLayout
+            android:id="@+id/layoutHeader"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:padding="16dp"
-            android:text="Messages"
-            android:textColor="@color/titleBar"
-            android:textSize="24sp"
-            android:textStyle="bold" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp">
+
+            <TextView
+                android:id="@+id/tvMainTitle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:padding="8dp"
+                android:text="Messages"
+                android:textColor="@color/titleBar"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <EditText
+                android:id="@+id/etSearchConversations"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/bg_message_input"
+                android:hint="Search conversations..."
+                android:textColorHint="#888888"
+                android:textColor="@android:color/white"
+                android:paddingHorizontal="16dp"
+                android:paddingVertical="10dp"
+                android:textSize="15sp"
+                android:maxLines="1"
+                android:inputType="text"
+                android:imeOptions="actionSearch"
+                android:visibility="gone" />
+
+            <ImageButton
+                android:id="@+id/btnSearchConversations"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Search conversations"
+                android:padding="8dp"
+                android:src="@android:drawable/ic_menu_search"
+                app:tint="@color/titleBar" />
+
+        </LinearLayout>
 
         <!-- Conversation List -->
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/rvConversations"
+        <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-            tools:listitem="@layout/item_conversation"
-            tools:itemCount="5" />
+            android:layout_height="0dp"
+            android:layout_weight="1">
 
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvConversations"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                tools:listitem="@layout/item_conversation"
+                tools:itemCount="5" />
+
+            <TextView
+                android:id="@+id/tvSearchEmptyState"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:paddingTop="48dp"
+                android:text="No conversations found"
+                android:textColor="#808080"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:visibility="gone" />
+
+        </FrameLayout>
 
     </LinearLayout>
 

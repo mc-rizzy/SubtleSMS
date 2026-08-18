@@ -14,9 +14,11 @@
         android:id="@+id/ivAvatar"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:background="@color/convoIconBGColor"
+        android:background="@android:color/transparent"
         android:padding="10dp"
         app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full"
+        app:strokeColor="@color/convoIconTintColor"
+        app:strokeWidth="1.5dp"
         app:srcCompat="@android:drawable/ic_menu_myplaces"
         app:tint="@color/convoIconTintColor" />
 

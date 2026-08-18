@@ -1,6 +1,4 @@
-package com.example.subtlesms;
-
-import android.net.Uri;
+package com.example.subtlesmsBackUp.subtlesms;
 
 public class SmsMessage {
     private final String id;
@@ -13,7 +11,6 @@ public class SmsMessage {
     private boolean isGroup;
     private String mediaUrl; // Local content URI string
     private String mediaType;
-    private final Uri mediaUri; // parsed once here instead of per-bind in the adapter
 
     public SmsMessage(String id, String body, long timestamp, boolean isSent, boolean isAutomated, int systemStatus, String senderName, boolean isGroup, String mediaUrl, String mediaType) {
         this.id = id;
@@ -26,18 +23,21 @@ public class SmsMessage {
         this.isGroup = isGroup;
         this.mediaUrl = mediaUrl;
         this.mediaType = mediaType;
-        this.mediaUri = (mediaUrl != null && !mediaUrl.isEmpty()) ? Uri.parse(mediaUrl) : null;
     }
 
     private MessageStatus determineStatus(boolean isSent, boolean isAutomated, int systemStatus) {
         if (!isSent) {
+            // 6. Incoming message to me
             return MessageStatus.I_RECEIVED;
         }
+
+        // Outgoing status evaluation based on Android systemStatus
         if (systemStatus == 0) { // STATUS_COMPLETE (Delivered by carrier)
             return isAutomated ? MessageStatus.AUTO_SENT_DELIVERED : MessageStatus.MANUAL_SENT_DELIVERED;
         } else if (systemStatus >= 64) { // STATUS_FAILED / Error code
             return isAutomated ? MessageStatus.AUTO_SENT_FAILED : MessageStatus.MANUAL_SENT_FAILED;
         } else {
+            // 1. Message sent, pending delivery (systemStatus -1 or 32)
             return MessageStatus.SENT_PENDING;
         }
     }
@@ -52,9 +52,13 @@ public class SmsMessage {
     public boolean isGroup() { return isGroup; }
     public String getMediaUrl() { return mediaUrl; }
     public String getMediaType() { return mediaType; }
-    public Uri getMediaUri() { return mediaUri; }
-    public boolean hasMedia() { return mediaUri != null; }
+    public boolean hasMedia() { return mediaUrl != null && !mediaUrl.isEmpty(); }
 
-    public void setAutomated(boolean automated) { this.isAutomated = automated; }
-    public void setStatus(MessageStatus status) { this.status = status; }
+    public void setAutomated(boolean automated) {
+        this.isAutomated = automated;
+    }
+
+    public void setStatus(MessageStatus status) {
+        this.status = status;
+    }
 }

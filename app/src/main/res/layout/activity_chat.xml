@@ -58,6 +58,16 @@
             android:textSize="15sp" />
 
         <ImageButton
+            android:id="@+id/btnAttachMedia"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Attach Media"
+            android:padding="12dp"
+            android:src="@android:drawable/ic_input_add"
+            app:tint="@color/MediaButtonColor" />
+
+        <ImageButton
             android:id="@+id/btnSend"
             android:layout_width="48dp"
             android:layout_height="48dp"
