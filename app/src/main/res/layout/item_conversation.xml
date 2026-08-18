@@ -14,11 +14,11 @@
         android:id="@+id/ivAvatar"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:background="#222222"
+        android:background="@color/convoIconBGColor"
         android:padding="10dp"
         app:shapeAppearanceOverlay="@style/ShapeAppearance.Material3.Corner.Full"
         app:srcCompat="@android:drawable/ic_menu_myplaces"
-        app:tint="#888888" />
+        app:tint="@color/convoIconTintColor" />
 
     <!-- Details Column -->
     <LinearLayout
@@ -41,8 +41,8 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:text="John Doe"
-                android:textColor="@android:color/white"
+                android:text="Name"
+                android:textColor="@color/convoNameColor"
                 android:textSize="16sp"
                 android:textStyle="bold" />
 
@@ -50,8 +50,8 @@
                 android:id="@+id/tvTimestamp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="10:42 AM"
-                android:textColor="#777777"
+                android:text="00:00 AM"
+                android:textColor="@color/convoTimeColor"
                 android:textSize="12sp" />
         </LinearLayout>
 
@@ -70,8 +70,8 @@
                 android:layout_weight="1"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:text="Hey, are we still meeting today?"
-                android:textColor="#AAAAAA"
+                android:text="Previous Message"
+                android:textColor="@color/convoDescColor"
                 android:textSize="14sp" />
 
             <!-- Sentiment Indicator Indicator (Optional visual cue) -->
@@ -80,13 +80,15 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
-                android:background="#1E2A1E"
+                android:background="@drawable/bg_sentiment_badge"
                 android:paddingHorizontal="6dp"
                 android:paddingVertical="2dp"
-                android:text="Positive"
-                android:textColor="#4CAF50"
+                android:text="Sample Status"
+                android:textColor="@color/convoStatusColor"
                 android:textSize="10sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:visibility="gone"
+                />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

@@ -1,12 +1,21 @@
 package com.example.subtlesms;
 
+import android.app.PendingIntent;
 import android.content.Context;
+import android.content.Intent;
+import android.content.SharedPreferences;
 import android.telephony.SmsManager;
 import androidx.annotation.NonNull;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
+import java.util.HashSet;
+import java.util.Set;
+
 public class SmsWorker extends Worker {
+
+    private static final String PREFS_NAME = "SubtleSMS_Prefs";
+    private static final String KEY_AUTO_MSG_IDS = "auto_message_ids";
 
     public SmsWorker(@NonNull Context context, @NonNull WorkerParameters workerParams) {
         super(context, workerParams);
@@ -15,58 +24,49 @@ public class SmsWorker extends Worker {
     @NonNull
     @Override
     public Result doWork() {
+        Context context = getApplicationContext();
         String sender = getInputData().getString("SENDER");
-        String body = getInputData().getString("BODY");
+        String responseMessage = getInputData().getString("RESPONSE_MESSAGE");
 
-        if (sender == null || body == null) {
+        if (sender == null || responseMessage == null) {
             return Result.failure();
         }
 
-        // 1. Perform Sentiment Analysis
-        String sentiment = analyzeSentiment(body);
-
-        // 2. Generate Automated Response
-        String responseMessage = generateResponse(sentiment);
-
-        // 3. Dispatch SMS
-        sendSms(sender, responseMessage);
-
-        return Result.success();
-    }
-
-    private String analyzeSentiment(String text) {
-        // Simple heuristic rules (Replace with TensorFlow Lite or Remote REST API)
-        String lower = text.toLowerCase();
-        if (lower.contains("urgent") || lower.contains("bad") || lower.contains("help") || lower.contains("error")) {
-            return "NEGATIVE";
-        } else if (lower.contains("thanks") || lower.contains("great") || lower.contains("good") || lower.contains("awesome")) {
-            return "POSITIVE";
-        }
-        return "NEUTRAL";
-    }
-
-    private String generateResponse(String sentiment) {
-        switch (sentiment) {
-            case "POSITIVE":
-                return "Thanks for the positive message! We will get back to you shortly.";
-            case "NEGATIVE":
-                return "We noticed your message seems urgent. Our support team has been notified.";
-            default:
-                return "Thank you for reaching out. Message received.";
-        }
-    }
-
-    private void sendSms(String phoneNumber, String message) {
         try {
+            // 1. Mark as automated in SharedPreferences BEFORE dispatching
+            markAsAutomated(context, responseMessage);
+
+            // 2. Get SmsManager instance
             SmsManager smsManager;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                smsManager = getApplicationContext().getSystemService(SmsManager.class);
+                smsManager = context.getSystemService(SmsManager.class);
             } else {
                 smsManager = SmsManager.getDefault();
             }
-            smsManager.sendTextMessage(phoneNumber, null, message, null, null);
+
+            // 3. Create PendingIntent for delivery receipt
+            Intent deliveryIntent = new Intent("SMS_DELIVERED");
+            PendingIntent deliveredPI = PendingIntent.getBroadcast(
+                    context,
+                    0,
+                    deliveryIntent,
+                    PendingIntent.FLAG_IMMUTABLE
+            );
+
+            // 4. Dispatch the automated SMS (single send with delivery receipt)
+            smsManager.sendTextMessage(sender, null, responseMessage, null, deliveredPI);
+
+            return Result.success();
         } catch (Exception e) {
             e.printStackTrace();
+            return Result.failure();
         }
+    }
+
+    private void markAsAutomated(Context context, String messageText) {
+        SharedPreferences prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        Set<String> autoSet = new HashSet<>(prefs.getStringSet(KEY_AUTO_MSG_IDS, new HashSet<>()));
+        autoSet.add(messageText);
+        prefs.edit().putStringSet(KEY_AUTO_MSG_IDS, autoSet).apply();
     }
 }

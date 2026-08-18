@@ -2,9 +2,11 @@
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@android:color/black">
+    android:background="@android:color/black"
+    android:orientation="vertical">
 
     <!-- Main Content Container -->
     <LinearLayout
@@ -14,11 +16,12 @@
 
         <!-- Header Bar -->
         <TextView
+            android:id="@+id/tvMainTitle"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="16dp"
             android:text="Messages"
-            android:textColor="@android:color/white"
+            android:textColor="@color/titleBar"
             android:textSize="24sp"
             android:textStyle="bold" />
 
@@ -27,7 +30,10 @@
             android:id="@+id/rvConversations"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager" />
+            app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+            tools:listitem="@layout/item_conversation"
+            tools:itemCount="5" />
+
 
     </LinearLayout>
 
@@ -38,7 +44,10 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom|end"
 
-        android:layout_margin="16dp"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="16dp"
         app:fabCustomSize="40dp"
 
         android:contentDescription="New Conversation"

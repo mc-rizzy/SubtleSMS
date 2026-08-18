@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Solid white acts as a base layer that accepts color tinting cleanly -->
+    <solid android:color="#FFFFFF" />
+    <corners android:radius="4dp" />
+</shape>

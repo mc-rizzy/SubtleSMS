@@ -3,46 +3,40 @@ package com.example.subtlesms;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Bundle;
+import android.provider.Telephony;
 import android.telephony.SmsMessage;
 import androidx.work.Data;
 import androidx.work.OneTimeWorkRequest;
+import androidx.work.OutOfQuotaPolicy;
 import androidx.work.WorkManager;
 
 public class SmsReceiver extends BroadcastReceiver {
 
     @Override
     public void onReceive(Context context, Intent intent) {
-        if ("android.provider.Telephony.SMS_RECEIVED".equals(intent.getAction())) {
-            Bundle bundle = intent.getExtras();
-            if (bundle != null) {
-                Object[] pdus = (Object[]) bundle.get("pdus");
-                String format = bundle.getString("format");
+        if (Telephony.Sms.Intents.SMS_RECEIVED_ACTION.equals(intent.getAction())) {
+            SmsMessage[] messages = Telephony.Sms.Intents.getMessagesFromIntent(intent);
 
-                if (pdus != null) {
-                    for (Object pdu : pdus) {
-                        SmsMessage message = SmsMessage.createFromPdu((byte[]) pdu, format);
-                        String sender = message.getDisplayOriginatingAddress();
-                        String body = message.getMessageBody();
+            if (messages != null && messages.length > 0) {
+                String senderPhoneNumber = messages[0].getOriginatingAddress();
+                String incomingBody = messages[0].getMessageBody();
 
-                        // Enqueue work off the main thread
-                        scheduleAnalysisAndReply(context, sender, body);
-                    }
-                }
+                // Generate your automated response
+                String responseMessageText = "Auto-reply: " + incomingBody;
+
+                // --- PUT WORKMANAGER ENQUEUE CODE HERE ---
+                Data inputData = new Data.Builder()
+                        .putString("SENDER", senderPhoneNumber)
+                        .putString("RESPONSE_MESSAGE", responseMessageText)
+                        .build();
+
+                OneTimeWorkRequest smsWorkRequest = new OneTimeWorkRequest.Builder(SmsWorker.class)
+                        .setInputData(inputData)
+                        .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                        .build();
+
+                WorkManager.getInstance(context).enqueue(smsWorkRequest);
             }
         }
-    }
-
-    private void scheduleAnalysisAndReply(Context context, String sender, String body) {
-        Data inputData = new Data.Builder()
-                .putString("SENDER", sender)
-                .putString("BODY", body)
-                .build();
-
-        OneTimeWorkRequest workRequest = new OneTimeWorkRequest.Builder(SmsWorker.class)
-                .setInputData(inputData)
-                .build();
-
-        WorkManager.getInstance(context).enqueue(workRequest);
     }
 }
