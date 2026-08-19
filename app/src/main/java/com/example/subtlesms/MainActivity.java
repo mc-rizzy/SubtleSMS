@@ -58,15 +58,14 @@ public class MainActivity extends AppCompatActivity {
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_main);
 
-        repository = AppRepository.getInstance(this);
+        repository = AppRepository.getInstance();
 
         rvConversations = findViewById(R.id.rvConversations);
         rvConversations.setLayoutManager(new LinearLayoutManager(this));
         rvConversations.setHasFixedSize(true);
         rvConversations.setItemViewCacheSize(20);
 
-        setupWindowInsets();
-        setupNewConvoButton();
+//        setupNewConvoButton();
 
         if (checkAndRequestPermissions()) {
             loadConversations();
@@ -83,29 +82,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void setupWindowInsets() {
-        View tvTitle = findViewById(R.id.tvMainTitle);
-        if (tvTitle != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(tvTitle, (v, insets) -> {
-                Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-                int basePadding = (int) (16 * getResources().getDisplayMetrics().density);
-                v.setPadding(v.getPaddingLeft(), systemBars.top + basePadding, v.getPaddingRight(), v.getPaddingBottom());
-                return insets;
-            });
-        }
-
-        View fab = findViewById(R.id.fabNewConversation);
-        if (fab != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(fab, (view, insets) -> {
-                Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
-                CoordinatorLayout.LayoutParams params = (CoordinatorLayout.LayoutParams) view.getLayoutParams();
-                int marginInPx = (int) (16 * getResources().getDisplayMetrics().density);
-                params.bottomMargin = systemBars.bottom + marginInPx;
-                view.setLayoutParams(params);
-                return insets;
-            });
-        }
-    }
 
     private void setupNewConvoButton() {
         View fab = findViewById(R.id.fabNewConversation);
@@ -167,9 +143,9 @@ public class MainActivity extends AppCompatActivity {
             if (adapter == null) {
                 adapter = new ConversationAdapter(conversationList, conversation -> {
                     Intent intent = new Intent(MainActivity.this, ChatActivity.class);
-                    intent.putExtra("CONTACT_NAME", conversation.getContactName());
+                    intent.putExtra("CONTACT_NAME", conversation.getConversationName());
                     intent.putExtra("THREAD_ID", conversation.getThreadId());
-                    intent.putExtra("ADDRESS", conversation.getAddress());
+//                    intent.putExtra("ADDRESS", conversation.getAddress());
                     startActivity(intent);
                 });
                 rvConversations.setAdapter(adapter);
@@ -177,11 +153,11 @@ public class MainActivity extends AppCompatActivity {
                 adapter.notifyDataSetChanged();
             }
 
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
-                repository.resolveContactNames(updated -> {
-                    if (updated != null) runOnUiThread(() -> adapter.notifyDataSetChanged());
-                });
-            }
+//            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+//                repository.resolveContactNames(updated -> {
+//                    if (updated != null) runOnUiThread(() -> adapter.notifyDataSetChanged());
+//                });
+//            }
 
             repository.analyzeSentiments(updated -> {
                 if (updated != null) runOnUiThread(() -> adapter.notifyDataSetChanged());

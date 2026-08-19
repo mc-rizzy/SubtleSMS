@@ -31,7 +31,7 @@
 
     <color name="BorderBubbleColor">#C5FFFFFF</color>
     <color name="RedBorderBubbleColor">#B8FF5252</color>
-    <color name="ReceivedMessageBackgroundColor">#00FFFFFF</color>
+    <color name="ReceivedMessageBackgroundColor">#1AFFFFFF</color>
     <color name="bg_date_separator">#00FFFFFF</color>
     <color name="date_separator_border">#6EFFFFFF</color>
     <color name="date_separator_text_color">#7EFFFFFF</color>

@@ -8,8 +8,12 @@ import android.net.Uri;
 import android.provider.ContactsContract;
 import android.provider.Telephony;
 import android.text.format.DateFormat;
+import android.util.Log;
+import android.util.Pair;
+import android.util.SparseArray;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -37,7 +41,7 @@ import java.util.concurrent.Executors;
 public class AppRepository {
 
     private static volatile AppRepository instance;
-
+    private AppRepository(Context context) {    this.appContext = context;  }
     public static AppRepository getInstance(Context context) {
         if (instance == null) {
             synchronized (AppRepository.class) {
@@ -45,6 +49,12 @@ public class AppRepository {
                     instance = new AppRepository(context.getApplicationContext());
                 }
             }
+        }
+        return instance;
+    }
+    public static AppRepository getInstance() {
+        if (instance == null) {
+            throw new IllegalStateException("AppRepository is not initialized..");
         }
         return instance;
     }
@@ -56,11 +66,12 @@ public class AppRepository {
     private static final String PREFS_NAME = "SubtleSMS_Prefs";
     private static final String KEY_AUTO_MSG_IDS = "auto_message_ids";
 
-    private static final Uri URI_MMS_PART = Uri.parse("content://mms/part");
-    private static final Uri URI_MMS_ADDR = Uri.parse("content://mms/addr");
-    private static final Uri URI_CONVERSATIONS = Uri.parse("content://mms-sms/conversations/");
+//    private static final Uri URI_MMS_PART = Uri.parse("content://mms/part");
+//    private static final Uri URI_MMS_ADDR = Uri.parse("content://mms/addr");
+//    private static final Uri URI_CONVERSATIONS = Uri.parse("content://mms-sms/conversations/");
+    private Uri URI_MMS_PART, URI_MMS_ADDR, URI_CONVERSATIONS, URI_SMS;
     private static final Uri URI_CANONICAL = Uri.parse("content://mms-sms/canonical-addresses");
-    private static final Uri URI_SMS = Uri.parse("content://sms/");
+//    private static final Uri URI_SMS = Uri.parse("content://sms/");
     private static final Uri URI_CONVERSATIONS_SIMPLE = Uri.parse("content://mms-sms/conversations?simple=true");
 
     private final Context appContext;
@@ -68,17 +79,156 @@ public class AppRepository {
 
     // ---- lazy in-memory caches; null/empty = "not loaded yet", not "empty result" ----
     private volatile List<Conversation> conversationCache;
+    private volatile SparseArray<Pair<String, String>> contactCache;
+    private volatile Map<String, String> contactsMap= new HashMap<>();
+
+
     private final Map<String, List<SmsMessage>> messageCache = new HashMap<>();
-    private volatile Map<String, String> contactCache; // number -> display name
     private final Map<String, String> sentimentCache = new HashMap<>(); // threadId -> sentiment
 
-    private AppRepository(Context context) {
-        this.appContext = context;
+
+    // =================================================================
+    // Contacts - loaded once, lazily, reused by both queryConversations
+    // and queryMessages instead of every screen re-querying it.
+    // =================================================================
+    private void loadContacts(){
+        if (contactCache != null) {
+            contactCache.clear();
+        }
+        ContentResolver cr = appContext.getContentResolver();
+        localContactsNames(cr);
+
+        try (Cursor cursor = cr.query(URI_CANONICAL, new String[]{"_id", "address"}, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idCol = cursor.getColumnIndex("_id");
+                int addressCol = cursor.getColumnIndex("address");
+
+                do{
+                    int canonicalId = cursor.getInt(idCol);
+                    String address = cursor.getString(addressCol).replaceAll("[^0-9]", "");
+                    String name = contactsMap.get(address);
+
+                    contactCache.put(canonicalId, new Pair<>(address, name != null ? name : address));
+                } while (cursor.moveToNext());
+            }
+        }
+        contactsMap.clear();
+    }
+    private void localContactsNames(ContentResolver cr) {
+        Uri uri = ContactsContract.CommonDataKinds.Phone.CONTENT_URI;
+        String[] projection = new String[]{
+                ContactsContract.CommonDataKinds.Phone.NUMBER,
+                ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME
+        };
+
+        try (Cursor cursor = cr.query(uri, projection, null, null, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int numberIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
+                int nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
+
+                do {
+                    String rawNumber = cursor.getString(numberIdx);
+                    String name = cursor.getString(nameIdx);
+
+                    if (rawNumber != null) {
+                        // Strip non-digits so "+1 (555) 123-4567" matches "5551234567"
+                        String cleanNumber = rawNumber.replaceAll("[^0-9]", "");
+                        contactsMap.put(cleanNumber, name);
+                    }
+                } while (cursor.moveToNext());
+            }
+        }
     }
 
     // =================================================================
     // Conversations (MainActivity list)
     // =================================================================
+
+    // =================================================================
+    // Internal ContentResolver queries (logic preserved from the old
+    // MainActivity / ChatActivity, just relocated here)
+    // =================================================================
+
+    private void queryConversations() {
+        conversationCache.clear();
+        ContentResolver cr = appContext.getContentResolver();
+
+        String[] projection = new String[]{"_id", "snippet", "date", "recipient_ids", "group_snippet", "archived", "message_count"};
+//        recipient_ids
+//        date
+//        _id
+//        message_count
+//        archived
+//
+//        snippet
+//        group_snippet (always null)
+
+        try (Cursor cursor = cr.query(URI_CONVERSATIONS_SIMPLE, projection, null, null, "date DESC")) {
+            if (cursor != null) {
+                int idCol = cursor.getColumnIndex("_id");
+                int snippetCol = cursor.getColumnIndex("snippet");
+                int dateCol = cursor.getColumnIndex("date");
+                int recipientCol = cursor.getColumnIndex("recipient_ids");
+                int groupSnippetCol = cursor.getColumnIndex("group_snippet");
+                int archivedCol = cursor.getColumnIndex("archived");
+                int messageCountCol = cursor.getColumnIndex("message_count");
+
+                while (cursor.moveToNext()) {
+                    String threadId = cursor.getString(idCol);
+                    int archived = cursor.getInt(archivedCol);
+                    int messageCount = cursor.getInt(messageCountCol);
+
+                    List<Integer> recipientIds = formatRecipients(cursor.getString(recipientCol));
+                    String mostRecentMessage;
+                    if(recipientIds.size() > 1)
+                        mostRecentMessage = cursor.getString(snippetCol);
+                    else
+                        mostRecentMessage = cursor.getString(groupSnippetCol);
+
+                    long dateMs = cursor.getLong(dateCol);
+                    String timestamp = DateFormat.format("hh:mm a", dateMs).toString();
+
+                    // The "snippet" column on this provider is unreliable for MMS/group
+                    // threads (it's frequently blank even though the thread has messages),
+                    // so fall back to reading the actual last message when it's empty.
+//                    if (mostRecentMessage == null || mostRecentMessage.trim().isEmpty()) {
+//                        mostRecentMessage = queryLastMessageSnippet(cr, threadId);
+//                    }
+
+                    boolean rando = true;
+                    for (int id: recipientIds){
+                        String tempName = recipientLookup(id).second;
+                        if (tempName != null && !tempName.trim().isEmpty())
+                            rando = false;
+                    }
+
+                    conversationCache.add(new Conversation(recipientIds, mostRecentMessage, timestamp, "", threadId, rando, archived == 1, messageCount));
+                }
+            }
+        }
+    }
+    private List<Integer> formatRecipients(String rawIds){
+        List<Integer> temp = Collections.emptyList();
+        if (rawIds == null || rawIds.trim().isEmpty()) return temp;
+
+        String[] ids = rawIds.split(" ");
+        for (String id : ids) {
+            if (id.isEmpty()) continue;
+            temp.add(Integer.parseInt(id));
+        }
+        return temp;
+    }
+
+    public Pair<String, String> recipientLookup(int id){
+        // returns number, name
+        return contactCache.get(id);
+    }
+    public String recipientNameLookup(int id){
+        // returns name? : number
+        Pair<String, String> temp = contactCache.get(id);
+        if (!temp.second.trim().isEmpty()) return temp.second.trim();
+        return temp.first;
+    }
 
     public void getConversations(Callback<List<Conversation>> callback) {
         if (conversationCache != null) {
@@ -86,39 +236,23 @@ public class AppRepository {
             return;
         }
         executor.execute(() -> {
-            List<Conversation> loaded = queryConversations();
-            applyCachedSentiments(loaded);
-            conversationCache = loaded;
-            callback.onResult(loaded);
+            loadContacts();
+//            printURI("TAGGYMCTAGFACE", URI_CANONICAL);
+            //Initialize SentimentCache
+            queryConversations();
+            callback.onResult(conversationCache);
         });
     }
 
-    public void refreshConversations(Callback<List<Conversation>> callback) {
-        conversationCache = null;
-        getConversations(callback);
-    }
 
-    /** Resolves contact display names for whatever conversations are currently cached. */
-    public void resolveContactNames(Callback<List<Conversation>> callback) {
-        executor.execute(() -> {
-            List<Conversation> conversations = conversationCache;
-            if (conversations == null) {
-                callback.onResult(null);
-                return;
-            }
-            Map<String, String> contacts = getContactCache();
-            boolean updated = false;
-            for (Conversation conv : conversations) {
-                Result resolved = resolveNames(conv.getAddress(), contacts);
-                if (resolved.foundAny) {
-                    conv.setContactName(resolved.names);
-                    conv.setRando(false);
-                    updated = true;
-                }
-            }
-            callback.onResult(updated ? conversations : null);
-        });
-    }
+
+
+
+
+
+
+
+
 
     /** Computes and caches sentiment for whatever conversations are currently cached. */
     public void analyzeSentiments(Callback<List<Conversation>> callback) {
@@ -148,15 +282,6 @@ public class AppRepository {
         });
     }
 
-    private void applyCachedSentiments(List<Conversation> conversations) {
-        for (Conversation conv : conversations) {
-            String cached = sentimentCache.get(conv.getThreadId());
-            if (cached != null) {
-                conv.setSentiment(cached);
-            }
-        }
-    }
-
     // =================================================================
     // Messages (ChatActivity thread view)
     // =================================================================
@@ -169,9 +294,9 @@ public class AppRepository {
             return;
         }
         executor.execute(() -> {
-            List<SmsMessage> loaded = queryMessages(threadId, address);
-            messageCache.put(key, loaded);
-            callback.onResult(loaded);
+//            List<SmsMessage> loaded = queryMessages(threadId, address);
+//            messageCache.put(key, loaded);
+//            callback.onResult(loaded);
         });
     }
 
@@ -209,120 +334,11 @@ public class AppRepository {
         return prefs.getStringSet(KEY_AUTO_MSG_IDS, new HashSet<>());
     }
 
-    // =================================================================
-    // Contacts - loaded once, lazily, reused by both queryConversations
-    // and queryMessages instead of every screen re-querying it.
-    // =================================================================
 
-    private Map<String, String> getContactCache() {
-        if (contactCache == null) {
-            contactCache = queryContactCache();
-        }
-        return contactCache;
-    }
 
-    public void invalidateContactCache() {
-        contactCache = null;
-    }
 
-    private Map<String, String> queryContactCache() {
-        Map<String, String> cache = new HashMap<>();
-        try (Cursor cursor = appContext.getContentResolver().query(
-                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
-                new String[]{ContactsContract.CommonDataKinds.Phone.NUMBER, ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME},
-                null, null, null)) {
-            if (cursor != null) {
-                int numberIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER);
-                int nameIdx = cursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME);
-                while (cursor.moveToNext()) {
-                    String number = cursor.getString(numberIdx);
-                    String name = cursor.getString(nameIdx);
-                    if (number != null && name != null) {
-                        cache.put(number.replaceAll("[^0-9+]", ""), name);
-                        cache.put(number, name);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return cache;
-    }
 
-    private static class Result {
-        String names;
-        boolean foundAny;
-    }
 
-    private Result resolveNames(String rawAddresses, Map<String, String> contacts) {
-        Result result = new Result();
-        if (rawAddresses == null || rawAddresses.isEmpty()) {
-            result.names = "Unknown";
-            return result;
-        }
-        String[] addresses = rawAddresses.split(", ");
-        StringBuilder names = new StringBuilder();
-        for (String address : addresses) {
-            String normalized = address.replaceAll("[^0-9+]", "");
-            String resolvedName = contacts.get(normalized);
-            if (resolvedName == null) resolvedName = contacts.get(address);
-
-            if (names.length() > 0) names.append(", ");
-            if (resolvedName != null) {
-                result.foundAny = true;
-                names.append(resolvedName);
-            } else {
-                names.append(address);
-            }
-        }
-        result.names = names.toString();
-        return result;
-    }
-
-    // =================================================================
-    // Internal ContentResolver queries (logic preserved from the old
-    // MainActivity / ChatActivity, just relocated here)
-    // =================================================================
-
-    private List<Conversation> queryConversations() {
-        List<Conversation> list = new ArrayList<>();
-        ContentResolver cr = appContext.getContentResolver();
-
-        Map<String, String> canonicalAddressMap = fetchAllCanonicalAddresses(cr);
-
-        String[] projection = new String[]{"_id", "snippet", "date", "recipient_ids"};
-
-        try (Cursor cursor = cr.query(URI_CONVERSATIONS_SIMPLE, projection, null, null, "date DESC")) {
-            if (cursor != null) {
-                int threadIdx = cursor.getColumnIndex("_id");
-                int snippetIdx = cursor.getColumnIndex("snippet");
-                int dateIdx = cursor.getColumnIndex("date");
-                int recipientIdx = cursor.getColumnIndex("recipient_ids");
-
-                while (cursor.moveToNext()) {
-                    String threadId = cursor.getString(threadIdx);
-                    String body = cursor.getString(snippetIdx);
-                    long dateMs = cursor.getLong(dateIdx);
-                    String timestamp = DateFormat.format("hh:mm a", dateMs).toString();
-
-                    String recipientIds = cursor.getString(recipientIdx);
-                    String rawAddress = resolveAddressesFromMap(recipientIds, canonicalAddressMap);
-
-                    // The "snippet" column on this provider is unreliable for MMS/group
-                    // threads (it's frequently blank even though the thread has messages),
-                    // so fall back to reading the actual last message when it's empty.
-                    if (body == null || body.trim().isEmpty()) {
-                        body = queryLastMessageSnippet(cr, threadId);
-                    }
-
-                    list.add(new Conversation(rawAddress, body, timestamp, "", threadId, rawAddress, true));
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return list;
-    }
 
     /**
      * Fallback for threads whose "snippet" column came back empty (mainly MMS/group
@@ -412,7 +428,7 @@ public class AppRepository {
         }
         return addressList.toString();
     }
-
+/*
     private List<SmsMessage> queryMessages(String threadId, String address) {
         List<SmsMessage> messages = new ArrayList<>();
         ContentResolver cr = appContext.getContentResolver();
@@ -520,6 +536,7 @@ public class AppRepository {
 
         return messages;
     }
+    */
 
     private static class Row {
         String id;
@@ -635,6 +652,73 @@ public class AppRepository {
         MmsPartData(String content, String type) {
             this.content = content;
             this.type = type;
+        }
+    }
+
+    private void printURI(String TAG, Uri URICUSTOM){
+        ContentResolver cr = appContext.getContentResolver();
+
+        try (Cursor cursor = cr.query(URICUSTOM, null, null, null, null)) {
+//        try (Cursor cursor = cr.query(URICUSTOM, null, null, null, "date DESC")) {
+            if (cursor != null && cursor.moveToFirst()) {
+                String[] columnNames = cursor.getColumnNames();
+                int rowNumber = 0;
+
+                Log.d(TAG, "=== TOTAL ROWS: " + cursor.getCount() + " | TOTAL COLUMNS: " + columnNames.length + " ===");
+
+                do {
+                    StringBuilder rowLog = new StringBuilder();
+                    rowLog.append("\n--- ROW ").append(rowNumber++).append(" ---");
+
+                    for (String colName : columnNames) {
+                        int colIdx = cursor.getColumnIndex(colName);
+
+                        // Get the raw data type returned by the provider
+                        String typeName;
+                        String value;
+
+                        switch (cursor.getType(colIdx)) {
+                            case Cursor.FIELD_TYPE_NULL:
+                                typeName = "NULL";
+                                value = "null";
+                                break;
+                            case Cursor.FIELD_TYPE_INTEGER:
+                                typeName = "INT";
+                                value = String.valueOf(cursor.getLong(colIdx));
+                                break;
+                            case Cursor.FIELD_TYPE_FLOAT:
+                                typeName = "FLOAT";
+                                value = String.valueOf(cursor.getDouble(colIdx));
+                                break;
+                            case Cursor.FIELD_TYPE_STRING:
+                                typeName = "STRING";
+                                value = cursor.getString(colIdx);
+                                break;
+                            case Cursor.FIELD_TYPE_BLOB:
+                                typeName = "BLOB";
+                                byte[] blob = cursor.getBlob(colIdx);
+                                value = "[ByteArray length=" + (blob != null ? blob.length : 0) + "]";
+                                break;
+                            default:
+                                typeName = "UNKNOWN";
+                                value = "unknown";
+                                break;
+                        }
+
+                        rowLog.append("\n  [").append(typeName).append("] ")
+                                .append(colName).append(" = ")
+                                .append(value);
+                    }
+
+                    Log.d(TAG, rowLog.toString());
+
+                } while (cursor.moveToNext());
+
+            } else {
+                Log.d(TAG, "Cursor is null or returned 0 rows.");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading cursor", e);
         }
     }
 }

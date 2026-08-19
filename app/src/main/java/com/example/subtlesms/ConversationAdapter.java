@@ -42,7 +42,7 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
     @Override
     public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
         Conversation item = list.get(position);
-        holder.tvName.setText(item.getContactName());
+        holder.tvName.setText(item.getConversationName());
         holder.tvMessage.setText(item.getLastMessage());
         holder.tvTime.setText(item.getTimestamp());
 
