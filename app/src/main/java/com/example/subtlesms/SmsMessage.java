@@ -43,12 +43,6 @@ public class SmsMessage {
         this.isAutomated = isAutomated;
         this.status = status;
         this.type = type;
-//      1 = MESSAGE_TYPE_INBOX (Received message)
-//      2 = MESSAGE_TYPE_SENT (Sent message)
-//      3 = MESSAGE_TYPE_DRAFT (Saved draft)
-//      4 = MESSAGE_TYPE_OUTBOX (Queued to send)
-//      5 = MESSAGE_TYPE_FAILED (Failed to send)
-//      6 = MESSAGE_TYPE_QUEUED (Pending retry)
         this.subId = subId;
     }
 
@@ -63,7 +57,7 @@ public class SmsMessage {
         this.mediaType=media;
     }
     public boolean isSent(){
-        return this.type == SENT_MESSAGE;
+        return this.status == SENT_MESSAGE;
     }
     public String getBody(){
         return this.body;

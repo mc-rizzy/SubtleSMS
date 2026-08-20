@@ -400,7 +400,17 @@ public class AppRepository {
 
 
 
+    public void markMessageAsAutomated(String messageIdOrBody) {
+        SharedPreferences prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        Set<String> autoSet = new HashSet<>(prefs.getStringSet(KEY_AUTO_MSG_IDS, new HashSet<>()));
+        autoSet.add(messageIdOrBody);
+        prefs.edit().putStringSet(KEY_AUTO_MSG_IDS, autoSet).apply();
+    }
 
+    private Set<String> getAutomatedIds() {
+        SharedPreferences prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        return prefs.getStringSet(KEY_AUTO_MSG_IDS, new HashSet<>());
+    }
 
 
 
@@ -621,17 +631,7 @@ public class AppRepository {
     // Automated-message bookkeeping (shared by ChatActivity + SmsWorker)
     // =================================================================
 
-    public void markMessageAsAutomated(String messageIdOrBody) {
-        SharedPreferences prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        Set<String> autoSet = new HashSet<>(prefs.getStringSet(KEY_AUTO_MSG_IDS, new HashSet<>()));
-        autoSet.add(messageIdOrBody);
-        prefs.edit().putStringSet(KEY_AUTO_MSG_IDS, autoSet).apply();
-    }
 
-    private Set<String> getAutomatedIds() {
-        SharedPreferences prefs = appContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        return prefs.getStringSet(KEY_AUTO_MSG_IDS, new HashSet<>());
-    }
 
 
 

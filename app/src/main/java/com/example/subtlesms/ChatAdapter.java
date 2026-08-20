@@ -133,10 +133,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     @Override
     public int getItemViewType(int position) {
-        Log.d("DOOKIE", "RUNNING");
         Object item = displayItems.get(position);
         if (item instanceof DateHeader) return TYPE_DATE_HEADER;
-        Log.d("DOOKIE", ""+((SmsMessage) item).isSent());
+//        Log.d("DOOKIE", ""+((SmsMessage) item).isSent());
         return ((SmsMessage) item).isSent() ? TYPE_SENT : TYPE_RECEIVED;
     }
 
