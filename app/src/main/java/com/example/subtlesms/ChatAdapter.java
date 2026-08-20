@@ -10,6 +10,7 @@ import static com.example.subtlesms.SmsMessage.SENT_MESSAGE;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -132,8 +133,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     @Override
     public int getItemViewType(int position) {
+        Log.d("DOOKIE", "RUNNING");
         Object item = displayItems.get(position);
         if (item instanceof DateHeader) return TYPE_DATE_HEADER;
+        Log.d("DOOKIE", ""+((SmsMessage) item).isSent());
         return ((SmsMessage) item).isSent() ? TYPE_SENT : TYPE_RECEIVED;
     }
 
@@ -286,7 +289,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     public static class DateHeaderViewHolder extends RecyclerView.ViewHolder {
         TextView tvDateLabel;
-
         public DateHeaderViewHolder(@NonNull View itemView) {
             super(itemView);
             tvDateLabel = itemView.findViewById(R.id.tvDateLabel);

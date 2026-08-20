@@ -61,7 +61,7 @@ public class Conversation {
     public boolean getRando() { return rando; }
     public boolean getArchived() { return archived; }
     public Long getMessageCount() { return messageCount; }
-    public boolean getIsGroup() { return recipientAddresses.size() > 1; }
+    public boolean getIsGroup() { return recipientIds.size() > 1; }
 
     public void setLastMessage(String lastMessage) { this.lastMessage = lastMessage; }
     public void setSentiment(String sentiment) { this.sentiment = sentiment; }

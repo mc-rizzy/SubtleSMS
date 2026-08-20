@@ -385,13 +385,13 @@ public class AppRepository {
 
 
     public boolean checkConversationExists(long threadID){
-        Conversation convo = conversationCache.get(threadID);
+        Conversation convo = conversationCache.get(String.valueOf(threadID));
         if(convo!=null)
             return true;
         return false;
     }
     public boolean checkIsGroup(long threadID){
-        Conversation convo = conversationCache.get(threadID);
+        Conversation convo = conversationCache.get(String.valueOf(threadID));
         if(convo!=null)
             return convo.getIsGroup();
         return false;

@@ -50,7 +50,6 @@ public class SmsMessage {
 //      5 = MESSAGE_TYPE_FAILED (Failed to send)
 //      6 = MESSAGE_TYPE_QUEUED (Pending retry)
         this.subId = subId;
-        Log.d("DOOKIE", ""+this.status+"\n"+this.body);
     }
 
     public void setBody(String newBody){
@@ -64,13 +63,13 @@ public class SmsMessage {
         this.mediaType=media;
     }
     public boolean isSent(){
-        return this.type == RECEIVED_MESSAGE;
+        return this.type == SENT_MESSAGE;
     }
     public String getBody(){
         return this.body;
     }
     public Long getTimestamp(){
-        return dateSent;
+        return (dateSent != 0) ? dateSent : date;
     }
     public boolean getIsAutomated(){
         return isAutomated;
