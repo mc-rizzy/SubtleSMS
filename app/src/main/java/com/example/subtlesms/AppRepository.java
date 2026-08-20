@@ -99,7 +99,9 @@ public class AppRepository {
 
     public List<Conversation> getConversationsList() {
         synchronized (conversationCache) {
-            return new ArrayList<>(conversationCache.values());
+            List<Conversation> list = new ArrayList<>(conversationCache.values());
+            list.sort((a, b) -> Long.compare(b.getRawTime(), a.getRawTime())); // newest first
+            return list;
         }
     }
     public List<SmsMessage> getMessagesList() {
@@ -422,7 +424,7 @@ public class AppRepository {
     // Messages (ChatActivity thread view)
     // =================================================================
 
-    public void getMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
+    public void getMessages(String threadId, Callback<List<SmsMessage>> callback) {
         if (!messageCache.isEmpty() && messageCache.values().iterator().next().getThreadId() == Long.parseLong(threadId)) {
             List<SmsMessage> result = getMessagesList();
             callback.onResult(result);
@@ -491,8 +493,11 @@ public class AppRepository {
                         name = recipientNameLookup(contactId);
 
                     boolean isMms = "mms".equalsIgnoreCase(transportType);
-                    if (isMms)
+                    if (isMms) {
+                        if (date < 100000000000L) date *= 1000;
+                        if (dateSent != 0 && dateSent < 100000000000L) dateSent *= 1000;
                         mmsIds.add(id);
+                    }
                     messageCache.put(String.valueOf(id),
                             new SmsMessage(id, threadIdVal,
                                     address, body, name,
@@ -511,6 +516,7 @@ public class AppRepository {
             executor.execute(() -> {
                 getMmsMessages(cr, mmsIdsToFetch);
                 List<SmsMessage> result = getMessagesList();
+                result.sort((a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
                 mainHandler.post(() -> callback.onResult(result));
             });
         }
@@ -553,13 +559,13 @@ public class AppRepository {
                     if ("text/plain".equalsIgnoreCase(ct)) {
                         String text = cursor.getString(textIdx);
                         if (!TextUtils.isEmpty(text)) {
-                            messageCache.get(mmsId).setBody(text);
+                            messageCache.get(String.valueOf(mmsId)).setBody(text);
                         }
                     } else if (ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/")) {
-                        messageCache.get(mmsId).setMedia(
+                        messageCache.get(String.valueOf(mmsId)).setMedia(
                             Uri.parse("content://mms/part/" + partId)
                         );
-                        messageCache.get(mmsId).setMediaType(ct);
+                        messageCache.get(String.valueOf(mmsId)).setMediaType(ct);
                     }
                 } while (cursor.moveToNext());
             }
@@ -605,7 +611,7 @@ public class AppRepository {
 
 
 
-    public void refreshMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
+    public void refreshMessages(String threadId, Callback<List<SmsMessage>> callback) {
         messageCache.clear(); // or a more surgical per-thread clear if you key it that way
         executor.execute(() -> queryMessages(Long.parseLong(threadId), callback));
     }
@@ -616,8 +622,13 @@ public class AppRepository {
         Conversation convo = conversationCache.get(threadId);
         if (convo != null) {
             convo.setLastMessage(message.getBody());
-            // ideally also bump its timestamp / re-sort, since ConversationAdapter/MainActivity reads from this cache
+            convo.setRawTime(message.getTimestamp());
         }
+    }
+
+    public void updateLocalMessageId(long oldId, SmsMessage message) {
+        messageCache.remove(String.valueOf(oldId));
+        messageCache.put(String.valueOf(message.getId()), message);
     }
 
 

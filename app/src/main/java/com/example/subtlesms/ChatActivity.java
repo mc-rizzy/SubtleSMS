@@ -8,12 +8,14 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.database.ContentObserver;
+import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.telephony.SmsManager;
+import android.text.TextUtils;
 import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
@@ -35,6 +37,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 /**
@@ -48,12 +51,14 @@ public class ChatActivity extends AppCompatActivity {
     private ChatAdapter adapter;
     private final List<SmsMessage> messagesList = new ArrayList<>();
     private EditText etMessageInput;
-    private String recipientAddress;
     private String threadId;
     private ContentObserver smsObserver;
     private AppRepository repository;
     private Conversation conversation;
     private SmsMessage mostRecentMessage;
+    private static final String ACTION_SMS_SENT = "com.example.subtlesms.SMS_SENT";
+    private long placeholderIdCounter = -1;
+    private final List<SmsMessage> pendingSentMessages = new ArrayList<>();
 
     private static final Uri URI_MMS_SMS = Uri.parse("content://mms-sms/");
 
@@ -75,6 +80,39 @@ public class ChatActivity extends AppCompatActivity {
             adapter.notifyDataSetChanged();
         }
     };
+
+    private final BroadcastReceiver sentReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            Iterator<SmsMessage> it = pendingSentMessages.iterator();
+            while (it.hasNext()) {
+                SmsMessage msg = it.next();
+                String realId = findJustSentMessageId(context, msg.getAddress(), msg.getBody());
+                if (realId != null) {
+                    long oldId = msg.getId();
+                    msg.setId(Long.parseLong(realId));
+                    repository.updateLocalMessageId(oldId, msg);
+                    it.remove();
+                }
+            }
+            adapter.refresh();
+        }
+    };
+
+    private String findJustSentMessageId(Context context, String address, String body) {
+        Uri uri = Uri.parse("content://sms/sent");
+        String selection = "address = ? AND body = ?";
+        String[] selectionArgs = new String[]{address, body};
+        try (Cursor cursor = context.getContentResolver().query(
+                uri, new String[]{"_id"}, selection, selectionArgs, "date DESC LIMIT 1")) {
+            if (cursor != null && cursor.moveToFirst()) {
+                return cursor.getString(cursor.getColumnIndexOrThrow("_id"));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -153,6 +191,10 @@ public class ChatActivity extends AppCompatActivity {
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        try {
+            ContextCompat.registerReceiver(this, sentReceiver, new IntentFilter(ACTION_SMS_SENT), ContextCompat.RECEIVER_EXPORTED);
+        } catch (Exception e) { e.printStackTrace(); }
     }
 
     @Override
@@ -160,6 +202,7 @@ public class ChatActivity extends AppCompatActivity {
         super.onPause();
         getContentResolver().unregisterContentObserver(smsObserver);
         unregisterReceiver(deliveryReceiver);
+        unregisterReceiver(sentReceiver);
     }
 
     /** First load: use whatever the repository already has cached, if anything. */
@@ -167,12 +210,12 @@ public class ChatActivity extends AppCompatActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
             return;
         }
-        repository.getMessages(threadId, recipientAddress, this::onMessagesLoaded);
+        repository.getMessages(threadId, this::onMessagesLoaded);
     }
 
     /** The provider changed underneath us (new message, status update) - force a re-fetch. */
     private void refreshMessages() {
-        repository.refreshMessages(threadId, recipientAddress, this::onMessagesLoaded);
+        repository.refreshMessages(threadId, this::onMessagesLoaded);
     }
 
     private void onMessagesLoaded(List<SmsMessage> messages) {
@@ -205,32 +248,34 @@ public class ChatActivity extends AppCompatActivity {
 
         try {
             SmsManager smsManager = SmsManager.getDefault();
+            Intent sentIntentObj = new Intent(ACTION_SMS_SENT);
+            PendingIntent sentPI = PendingIntent.getBroadcast(this, 0, sentIntentObj, PendingIntent.FLAG_IMMUTABLE);
             Intent deliveryIntent = new Intent("SMS_DELIVERED");
             PendingIntent deliveredPI = PendingIntent.getBroadcast(this, 0, deliveryIntent, PendingIntent.FLAG_IMMUTABLE);
 
             if (conversation.getIsGroup()) {
                 for (String recipient : conversation.getRecipientAddresses()) {
                     if (!recipient.trim().isEmpty()) {
-                        smsManager.sendTextMessage(recipient, null, messageText, null, deliveredPI);
+                        smsManager.sendTextMessage(recipient, null, messageText, sentPI, deliveredPI);
                     }
                 }
             } else {
-                smsManager.sendTextMessage(conversation.getRecipientAddresses().get(0), null, messageText, null, deliveredPI);
+                smsManager.sendTextMessage(conversation.getRecipientAddresses().get(0), null, messageText, sentPI, deliveredPI);
             }
 
             long nowMs = System.currentTimeMillis();
 
-            SmsMessage sentMsg = new SmsMessage(-1, Long.parseLong(conversation.getThreadId()),
-                    "Me", messageText, "Me",
+            SmsMessage sentMsg = new SmsMessage(placeholderIdCounter--, Long.parseLong(conversation.getThreadId()),
+                    conversation.getRecipientAddresses().get(0), messageText, "Me",
                     0, nowMs,
                     true, false, false,
                     SmsMessage.SIMPLE_PENDING, SmsMessage.QUEUED_SEND, 0);
-//
+
             messagesList.add(sentMsg);
+            pendingSentMessages.add(sentMsg);
             adapter.refresh();
             rvMessages.scrollToPosition(adapter.getItemCount() - 1);
             repository.appendLocalMessage(threadId, sentMsg);
-
             etMessageInput.setText("");
         } catch (Exception e) {
             e.printStackTrace();
@@ -239,9 +284,16 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void sendMediaMessage(Uri imageUri) {
+        List<String> addresses = conversation.getRecipientAddresses();
+        if (addresses == null || addresses.isEmpty()) {
+            Toast.makeText(this, "No valid recipients found", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String joinedAddresses = TextUtils.join(",", addresses);
+
         Intent intent = new Intent(Intent.ACTION_SENDTO);
-        intent.setData(Uri.parse("smsto:" + recipientAddress));
-        intent.putExtra("address", recipientAddress);
+        intent.setData(Uri.parse("smsto:" + Uri.encode(joinedAddresses)));
+        intent.putExtra("address", joinedAddresses);
         intent.putExtra(Intent.EXTRA_STREAM, imageUri);
         intent.setType("image/*");
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);

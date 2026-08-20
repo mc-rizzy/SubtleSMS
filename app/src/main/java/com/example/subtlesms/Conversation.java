@@ -17,7 +17,7 @@ public class Conversation {
     private List<String> recipientAddresses;
     private String conversationName = "";
     private String lastMessage;
-    private final Long rawTime;
+    private Long rawTime;
     private String sentiment;
     private final String threadId;
     private boolean rando;
@@ -57,6 +57,7 @@ public class Conversation {
     }
     public String getLastMessage() { return lastMessage; }
     public Long getRawTime() { return rawTime; }
+    public void setRawTime(Long rawTime) { this.rawTime = rawTime; }
     public String getTimestamp() { return DateFormat.format("hh:mm a", rawTime).toString(); }
     public String getSentiment() { return sentiment; }
     public String getThreadId() { return threadId; }

@@ -4,7 +4,7 @@ import android.net.Uri;
 import android.util.Log;
 
 public class SmsMessage {
-    private final long id;
+    private long id;
     private final long threadId;
     private final String address;
     private String body;
@@ -63,6 +63,10 @@ public class SmsMessage {
         this.body+=newBody;
     }
     public long getId() {return this.id;}
+    public void setId(long newId) {this.id = newId;}
+    public String getAddress() {
+        return this.address;
+    }
     public void setMedia(Uri media){
         this.hasMedia=true;
         this.mediaContent = media;
