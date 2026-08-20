@@ -3,6 +3,8 @@ package com.example.subtlesms;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
 import android.telephony.SmsManager;
 import androidx.annotation.NonNull;
 import androidx.work.Worker;
@@ -31,7 +33,7 @@ public class SmsWorker extends Worker {
         }
 
         try {
-            AppRepository.getInstance(context).markMessageAsAutomated(responseMessage);
+            AppRepository.getInstance().markMessageAsAutomated(responseMessage);
 
             SmsManager smsManager;
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -45,10 +47,30 @@ public class SmsWorker extends Worker {
 
             smsManager.sendTextMessage(sender, null, responseMessage, null, deliveredPI);
 
+            String sentMessageId = findJustSentMessageId(context, sender, responseMessage);
+            if (sentMessageId != null) {
+                AppRepository.getInstance().markMessageAsAutomated(sentMessageId);
+            }
+
             return Result.success();
         } catch (Exception e) {
             e.printStackTrace();
             return Result.failure();
         }
+    }
+
+    private String findJustSentMessageId(Context context, String address, String body) {
+        Uri uri = Uri.parse("content://sms/sent");
+        String selection = "address = ? AND body = ?";
+        String[] selectionArgs = new String[]{address, body};
+        try (Cursor cursor = context.getContentResolver().query(
+                uri, new String[]{"_id"}, selection, selectionArgs, "date DESC LIMIT 1")) {
+            if (cursor != null && cursor.moveToFirst()) {
+                return cursor.getString(cursor.getColumnIndexOrThrow("_id"));
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 }

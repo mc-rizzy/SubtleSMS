@@ -9,28 +9,34 @@ public class SmsMessage {
     private final String address;
     private String body;
     private final String name;
-    private final long date;
+    private long date;
     private final long dateSent;
     private boolean read;
     private int status;
     private boolean hasMedia;
     private String mediaType;
     private final boolean isAutomated;
-    private int type;
+    private int simpleStatus;
     private final int subId;
     private Uri mediaContent;
 
-    public static final int RECEIVED_MESSAGE = -1;
-    public static final int SENT_MESSAGE = 0;
+    public static final int RECEIVED_MESSAGE = 1;
+    public static final int SENT_MESSAGE = 2;
     public static final int DRAFT_MESSAGE = 3;
     public static final int QUEUED_SEND = 4;
     public static final int FAILED_SEND = 5;
     public static final int RETRYING_SEND = 6;
 
 
+    public static final int SIMPLE_RECEIVED = -1;
+    public static final int SIMPLE_DELIVERED = 0;
+    public static final int SIMPLE_PENDING = 32;
+    public static final int SIMPLE_FAILED = 64;
+
+
 
     public SmsMessage(long id, long threadIdVal, String address, String body, String name,
-                      long date, long dateSent, boolean read, boolean isMedia, boolean isAutomated, int status, int type, int subId) {
+                      long date, long dateSent, boolean read, boolean isMedia, boolean isAutomated, int statusMode1, int statusMode2, int subId) {
         this.id = id;
         this.threadId = threadIdVal;
         this.address = address;
@@ -41,8 +47,15 @@ public class SmsMessage {
         this.read = read;
         this.hasMedia = isMedia;
         this.isAutomated = isAutomated;
-        this.status = status;
-        this.type = type;
+        this.simpleStatus = statusMode1; // -1 received messages, 0 (Complete/Delivered), 32 (Pending), 64 (Failed)
+        this.status = statusMode2;
+//        Values: Maps to Telephony.Sms.MESSAGE_TYPE_* constants:
+//        1 = MESSAGE_TYPE_INBOX (Received message)
+//        2 = MESSAGE_TYPE_SENT (Sent message)
+//        3 = MESSAGE_TYPE_DRAFT (Saved draft)
+//        4 = MESSAGE_TYPE_OUTBOX (Queued to send)
+//        5 = MESSAGE_TYPE_FAILED (Failed to send)
+//        6 = MESSAGE_TYPE_QUEUED (Pending retry)
         this.subId = subId;
     }
 
@@ -65,6 +78,7 @@ public class SmsMessage {
     public Long getTimestamp(){
         return (dateSent != 0) ? dateSent : date;
     }
+    public void setTimestamp(long dateDelivered) {this.date = dateDelivered;}
     public boolean getIsAutomated(){
         return isAutomated;
     }
@@ -77,6 +91,7 @@ public class SmsMessage {
     public int getStatus(){
         return status;
     }
+    public void setStatus(int status) {this.status = status;}
     public String getMediaType(){
         return mediaType;
     }

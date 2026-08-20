@@ -52,6 +52,8 @@ public class ChatActivity extends AppCompatActivity {
     private String threadId;
     private ContentObserver smsObserver;
     private AppRepository repository;
+    private Conversation conversation;
+    private SmsMessage mostRecentMessage;
 
     private static final Uri URI_MMS_SMS = Uri.parse("content://mms-sms/");
 
@@ -64,9 +66,10 @@ public class ChatActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             for (SmsMessage msg : messagesList) {
-//                if (msg.isSent() && msg.getStatus() == MessageStatus.SENT_PENDING) {
-//                    msg.setStatus(msg.isAutomated() ? MessageStatus.AUTO_SENT_DELIVERED : MessageStatus.MANUAL_SENT_DELIVERED);
-//                }
+                if (msg.isSent() && msg.getStatus() == SmsMessage.QUEUED_SEND) {
+                    msg.setStatus(SmsMessage.SENT_MESSAGE);
+                    msg.setTimestamp(System.currentTimeMillis());
+                }
             }
             adapter.notifyDataSetChanged();
         }
@@ -75,9 +78,12 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         setContentView(R.layout.activity_chat);
 
         repository = AppRepository.getInstance();
+
+        resizeWhenTexting();
 
         ImageButton btnAttachMedia = findViewById(R.id.btnAttachMedia);
         btnAttachMedia.setOnClickListener(v -> pickMediaLauncher.launch(
@@ -122,6 +128,21 @@ public class ChatActivity extends AppCompatActivity {
         loadMessages();
     }
 
+    private void resizeWhenTexting(){
+        View root = findViewById(R.id.rootChatLayout);
+        ViewCompat.setOnApplyWindowInsetsListener(root, (v, windowInsets) -> {
+            Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+            Insets ime = windowInsets.getInsets(WindowInsetsCompat.Type.ime());
+            int bottomInset = Math.max(systemBars.bottom, ime.bottom);
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, bottomInset);
+
+            if (ime.bottom > 0 && adapter != null && adapter.getItemCount() > 0) {
+                rvMessages.post(() -> rvMessages.scrollToPosition(adapter.getItemCount() - 1));
+            }
+            return WindowInsetsCompat.CONSUMED;
+        });
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -157,6 +178,8 @@ public class ChatActivity extends AppCompatActivity {
         runOnUiThread(() -> {
             messagesList.clear();
             messagesList.addAll(messages);
+            mostRecentMessage = messagesList.get(messagesList.size()-1);
+            conversation = repository.conversationLookUp(mostRecentMessage.getThreadId());
             adapter.refresh();
             if (adapter.getItemCount() > 0) {
                 rvMessages.scrollToPosition(adapter.getItemCount() - 1);
@@ -167,8 +190,9 @@ public class ChatActivity extends AppCompatActivity {
     private void sendMessage() {
         String messageText = etMessageInput.getText().toString().trim();
         if (messageText.isEmpty()) return;
+        if (conversation == null) return;
 
-        if (recipientAddress == null || recipientAddress.isEmpty()) {
+        if (conversation.getRecipientAddresses().size() > 0) {
             Toast.makeText(this, "Recipient phone number unavailable", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -183,25 +207,28 @@ public class ChatActivity extends AppCompatActivity {
             Intent deliveryIntent = new Intent("SMS_DELIVERED");
             PendingIntent deliveredPI = PendingIntent.getBroadcast(this, 0, deliveryIntent, PendingIntent.FLAG_IMMUTABLE);
 
-            boolean isGroup = recipientAddress.contains(",");
-            if (isGroup) {
-                for (String recipient : recipientAddress.split(",")) {
-                    String cleanNumber = recipient.trim();
-                    if (!cleanNumber.isEmpty()) {
-                        smsManager.sendTextMessage(cleanNumber, null, messageText, null, deliveredPI);
+            if (conversation.getIsGroup()) {
+                for (String recipient : conversation.getRecipientAddresses()) {
+                    if (!recipient.trim().isEmpty()) {
+                        smsManager.sendTextMessage(recipient, null, messageText, null, deliveredPI);
                     }
                 }
             } else {
-                smsManager.sendTextMessage(recipientAddress, null, messageText, null, deliveredPI);
+                smsManager.sendTextMessage(conversation.getRecipientAddresses().get(0), null, messageText, null, deliveredPI);
             }
 
             long nowMs = System.currentTimeMillis();
-//            SmsMessage sentMsg = new SmsMessage(String.valueOf(nowMs), messageText, nowMs, true, false, -1, "Me", isGroup, null, "text");
+
+            SmsMessage sentMsg = new SmsMessage(-1, Long.parseLong(conversation.getThreadId()),
+                    "Me", messageText, "Me",
+                    0, nowMs,
+                    true, false, false,
+                    SmsMessage.SIMPLE_PENDING, SmsMessage.QUEUED_SEND, 0);
 //
-//            messagesList.add(sentMsg);
-//            adapter.refresh();
-//            rvMessages.scrollToPosition(adapter.getItemCount() - 1);
-//            repository.appendLocalMessage(threadId, recipientAddress, sentMsg);
+            messagesList.add(sentMsg);
+            adapter.refresh();
+            rvMessages.scrollToPosition(adapter.getItemCount() - 1);
+            repository.appendLocalMessage(threadId, recipientAddress, sentMsg);
 
             etMessageInput.setText("");
         } catch (Exception e) {

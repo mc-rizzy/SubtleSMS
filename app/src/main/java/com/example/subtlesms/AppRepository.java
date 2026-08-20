@@ -390,6 +390,9 @@ public class AppRepository {
             return true;
         return false;
     }
+    public Conversation conversationLookUp(long threadID){
+        return conversationCache.get(String.valueOf(threadID));
+    }
     public boolean checkIsGroup(long threadID){
         Conversation convo = conversationCache.get(String.valueOf(threadID));
         if(convo!=null)
@@ -420,7 +423,7 @@ public class AppRepository {
     // =================================================================
 
     public void getMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
-        if (!messageCache.isEmpty()) {
+        if (!messageCache.isEmpty() && messageCache.values().iterator().next().getThreadId() == Long.parseLong(threadId)) {
             List<SmsMessage> result = getMessagesList();
             callback.onResult(result);
             return;
@@ -463,8 +466,8 @@ public class AppRepository {
                 int dateIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE);
                 int dateSentIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE_SENT);
                 int readIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.READ);
-                int statusIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.STATUS);
-                int typeIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE);
+                int simpleStatusIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.STATUS);
+                int statusIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE);
                 int subIdIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.SUBSCRIPTION_ID);
                 int personIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.PERSON);
 
@@ -477,15 +480,8 @@ public class AppRepository {
                     long date = cursor.getLong(dateIdx);
                     long dateSent = cursor.getLong(dateSentIdx);
                     int read = cursor.getInt(readIdx); // 0 (Unread), 1 (Read)
-                    int status = cursor.getInt(statusIdx); // outgoing message status, 0 (Complete/Delivered), 32 (Pending), 64 (Failed)
-                    int type = cursor.getInt(typeIdx);
-//                    Values: Maps to Telephony.Sms.MESSAGE_TYPE_* constants:
-//                    1 = MESSAGE_TYPE_INBOX (Received message)
-//                    2 = MESSAGE_TYPE_SENT (Sent message)
-//                    3 = MESSAGE_TYPE_DRAFT (Saved draft)
-//                    4 = MESSAGE_TYPE_OUTBOX (Queued to send)
-//                    5 = MESSAGE_TYPE_FAILED (Failed to send)
-//                    6 = MESSAGE_TYPE_QUEUED (Pending retry)
+                    int simpleStatus = cursor.getInt(statusIdx); // -1 outgoing message status, 0 (Complete/Delivered), 32 (Pending), 64 (Failed)
+                    int status = cursor.getInt(simpleStatusIdx);
                     int subId = cursor.getInt(subIdIdx);
                     String name = null;
                     long contactId = cursor.getLong(personIdx);
@@ -501,8 +497,8 @@ public class AppRepository {
                             new SmsMessage(id, threadIdVal,
                                     address, body, name,
                                     date, dateSent,
-                                    (read == 1), false, automatedIds.contains(id),
-                                    status, type, subId));
+                                    (read == 1), false, automatedIds.contains(String.valueOf(id)),
+                                    status, simpleStatus, subId));
 //
                 }
             }
@@ -610,7 +606,6 @@ public class AppRepository {
 
 
     public void refreshMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
-        messageCache.remove(cacheKey(threadId, address));
         getMessages(threadId, address, callback);
     }
 
@@ -623,9 +618,7 @@ public class AppRepository {
 //        conversationCache.clear(); // list-screen snippet/timestamp is now stale
     }
 
-    private String cacheKey(String threadId, String address) {
-        return (threadId != null && !threadId.isEmpty()) ? "thread:" + threadId : "addr:" + address;
-    }
+
 
     // =================================================================
     // Automated-message bookkeeping (shared by ChatActivity + SmsWorker)
