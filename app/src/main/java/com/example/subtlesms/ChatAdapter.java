@@ -69,8 +69,9 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** Rebuilds the date-separator/message layout and re-renders. Call after messages change. */
     public void refresh() {
+        List<Object> old = new ArrayList<>(displayItems);
         rebuildDisplayItems();
-        notifyDataSetChanged();
+        if (!old.equals(displayItems)) notifyDataSetChanged(); // or DiffUtil.calculateDiff for per-row updates
     }
 
     /**
@@ -135,7 +136,6 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     public int getItemViewType(int position) {
         Object item = displayItems.get(position);
         if (item instanceof DateHeader) return TYPE_DATE_HEADER;
-//        Log.d("DOOKIE", ""+((SmsMessage) item).isSent());
         return ((SmsMessage) item).isSent() ? TYPE_SENT : TYPE_RECEIVED;
     }
 
@@ -223,8 +223,8 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     private void setBubbleType(Context context, ViewHolder holder, int status, boolean isAutomated) {
-        int drawableResId = 0;
         if (holder.layoutBubble != null) {
+            int drawableResId = 0;
             switch (status) {
                 case RECEIVED_MESSAGE:
                     drawableResId = R.drawable.bg_bubble_received;
@@ -248,13 +248,10 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     drawableResId = 0;
                     break;
             }
-            if (!drawableCache.containsKey(drawableResId) && drawableResId != 0) {
-                Drawable drawable = ContextCompat.getDrawable(context, drawableResId);
-                if (drawable != null) drawableCache.put(drawableResId, drawable);
-            }
-
-            if (holder.layoutBubble.getBackground() != drawableCache.get(drawableResId)) {
-                holder.layoutBubble.setBackground(drawableCache.get(drawableResId));
+            if (drawableResId != 0) {
+                holder.layoutBubble.setBackgroundResource(drawableResId);
+            }else{
+                holder.layoutBubble.setBackground(null);
             }
         }
 

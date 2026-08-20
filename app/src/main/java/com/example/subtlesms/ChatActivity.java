@@ -65,8 +65,9 @@ public class ChatActivity extends AppCompatActivity {
     private final BroadcastReceiver deliveryReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
+
             for (SmsMessage msg : messagesList) {
-                if (msg.isSent() && msg.getStatus() == SmsMessage.QUEUED_SEND) {
+                if (msg.getStatus() == SmsMessage.QUEUED_SEND) {
                     msg.setStatus(SmsMessage.SENT_MESSAGE);
                     msg.setTimestamp(System.currentTimeMillis());
                 }
@@ -192,7 +193,7 @@ public class ChatActivity extends AppCompatActivity {
         if (messageText.isEmpty()) return;
         if (conversation == null) return;
 
-        if (conversation.getRecipientAddresses().size() > 0) {
+        if (conversation.getRecipientAddresses().isEmpty()) {
             Toast.makeText(this, "Recipient phone number unavailable", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -228,7 +229,7 @@ public class ChatActivity extends AppCompatActivity {
             messagesList.add(sentMsg);
             adapter.refresh();
             rvMessages.scrollToPosition(adapter.getItemCount() - 1);
-            repository.appendLocalMessage(threadId, recipientAddress, sentMsg);
+            repository.appendLocalMessage(threadId, sentMsg);
 
             etMessageInput.setText("");
         } catch (Exception e) {

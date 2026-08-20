@@ -606,16 +606,18 @@ public class AppRepository {
 
 
     public void refreshMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
-        getMessages(threadId, address, callback);
+        messageCache.clear(); // or a more surgical per-thread clear if you key it that way
+        executor.execute(() -> queryMessages(Long.parseLong(threadId), callback));
     }
 
     /** Appends a just-sent message to the in-memory cache so the UI can show it instantly. */
-    public void appendLocalMessage(String threadId, String address, SmsMessage message) {
-//        List<SmsMessage> list = messageCache.get(cacheKey(threadId, address));
-//        if (list != null) {
-//            list.add(message);
-//        }
-//        conversationCache.clear(); // list-screen snippet/timestamp is now stale
+    public void appendLocalMessage(String threadId, SmsMessage message) {
+        messageCache.put(String.valueOf(message.getId()), message); // needs an id getter, and unique keys per optimistic msg
+        Conversation convo = conversationCache.get(threadId);
+        if (convo != null) {
+            convo.setLastMessage(message.getBody());
+            // ideally also bump its timestamp / re-sort, since ConversationAdapter/MainActivity reads from this cache
+        }
     }
 
 

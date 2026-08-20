@@ -60,8 +60,9 @@ public class SmsMessage {
     }
 
     public void setBody(String newBody){
-        this.body+=body;
+        this.body+=newBody;
     }
+    public long getId() {return this.id;}
     public void setMedia(Uri media){
         this.hasMedia=true;
         this.mediaContent = media;
@@ -70,7 +71,7 @@ public class SmsMessage {
         this.mediaType=media;
     }
     public boolean isSent(){
-        return this.status == SENT_MESSAGE;
+        return status == SENT_MESSAGE || status == QUEUED_SEND || status == FAILED_SEND || status == RETRYING_SEND;
     }
     public String getBody(){
         return this.body;

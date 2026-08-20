@@ -3,6 +3,7 @@ package com.example.subtlesms;
 import android.text.format.DateFormat;
 import android.util.Log;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -48,6 +49,7 @@ public class Conversation {
     }
     public List<String> getRecipientAddresses(){
         if(recipientAddresses != null && !recipientAddresses.isEmpty()) return recipientAddresses;
+        recipientAddresses = new ArrayList<>();
         for(Long id : recipientIds) {
             recipientAddresses.add(AppRepository.getInstance().recipientLookup(id).first);
         }
