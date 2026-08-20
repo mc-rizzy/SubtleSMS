@@ -1,24 +1,33 @@
 package com.example.subtlesms;
 
 import android.content.ContentResolver;
+import android.content.ContentUris;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.ContactsContract;
 import android.provider.Telephony;
+import android.text.TextUtils;
 import android.text.format.DateFormat;
 import android.util.Log;
 import android.util.Pair;
 import android.util.SparseArray;
 
+import java.sql.Array;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -68,24 +77,36 @@ public class AppRepository {
 
 //    private static final Uri URI_MMS_PART = Uri.parse("content://mms/part");
 //    private static final Uri URI_MMS_ADDR = Uri.parse("content://mms/addr");
+    private static final Uri URI_MMS_PART = Uri.parse("content://mms/part");
 //    private static final Uri URI_CONVERSATIONS = Uri.parse("content://mms-sms/conversations/");
-    private Uri URI_MMS_PART, URI_MMS_ADDR, URI_CONVERSATIONS, URI_SMS;
+    private Uri URI_MMS_ADDR, URI_SMS, URI_CONVERSATIONS;
     private static final Uri URI_CANONICAL = Uri.parse("content://mms-sms/canonical-addresses");
 //    private static final Uri URI_SMS = Uri.parse("content://sms/");
     private static final Uri URI_CONVERSATIONS_SIMPLE = Uri.parse("content://mms-sms/conversations?simple=true");
 
     private final Context appContext;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // ---- lazy in-memory caches; null/empty = "not loaded yet", not "empty result" ----
-    private volatile List<Conversation> conversationCache;
-    private volatile SparseArray<Pair<String, String>> contactCache;
-    private volatile Map<String, String> contactsMap= new HashMap<>();
+    private final Map<String, Conversation> conversationCache = Collections.synchronizedMap(new LinkedHashMap<>());
+    private volatile Map<Long, Pair<String, String>> contactCache = new ConcurrentHashMap<>();
+    private final Map<String, String> contactsMap= new ConcurrentHashMap<>();
 
 
-    private final Map<String, List<SmsMessage>> messageCache = new HashMap<>();
+    private final Map<String, SmsMessage> messageCache = Collections.synchronizedMap(new LinkedHashMap<>());
     private final Map<String, String> sentimentCache = new HashMap<>(); // threadId -> sentiment
 
+    public List<Conversation> getConversationsList() {
+        synchronized (conversationCache) {
+            return new ArrayList<>(conversationCache.values());
+        }
+    }
+    public List<SmsMessage> getMessagesList() {
+        synchronized (messageCache) {
+            return new ArrayList<>(messageCache.values());
+        }
+    }
 
     // =================================================================
     // Contacts - loaded once, lazily, reused by both queryConversations
@@ -104,11 +125,11 @@ public class AppRepository {
                 int addressCol = cursor.getColumnIndex("address");
 
                 do{
-                    int canonicalId = cursor.getInt(idCol);
-                    String address = cursor.getString(addressCol).replaceAll("[^0-9]", "");
+                    Long canonicalId = cursor.getLong(idCol);
+                    String address = sanitizeNumber(cursor.getString(addressCol));
                     String name = contactsMap.get(address);
 
-                    contactCache.put(canonicalId, new Pair<>(address, name != null ? name : address));
+                    contactCache.put(canonicalId, new Pair<>(address, name));
                 } while (cursor.moveToNext());
             }
         }
@@ -131,37 +152,34 @@ public class AppRepository {
                     String name = cursor.getString(nameIdx);
 
                     if (rawNumber != null) {
-                        // Strip non-digits so "+1 (555) 123-4567" matches "5551234567"
-                        String cleanNumber = rawNumber.replaceAll("[^0-9]", "");
+
+                        String cleanNumber = sanitizeNumber(rawNumber);
                         contactsMap.put(cleanNumber, name);
                     }
                 } while (cursor.moveToNext());
             }
         }
     }
+    private String sanitizeNumber(String rawNumber){
+        // Strip non-digits so "+1 (555) 123-4567" matches "5551234567"
+        String numbers = rawNumber.replaceAll("[^0-9]", "");
+        if(numbers.length() > 10)
+            numbers = numbers.substring(numbers.length() - 10);
+        return numbers;
+    }
 
     // =================================================================
     // Conversations (MainActivity list)
     // =================================================================
 
-    // =================================================================
-    // Internal ContentResolver queries (logic preserved from the old
-    // MainActivity / ChatActivity, just relocated here)
-    // =================================================================
-
-    private void queryConversations() {
+    private void queryConversations(Callback<List<Conversation>> callback) {
         conversationCache.clear();
         ContentResolver cr = appContext.getContentResolver();
 
-        String[] projection = new String[]{"_id", "snippet", "date", "recipient_ids", "group_snippet", "archived", "message_count"};
-//        recipient_ids
-//        date
-//        _id
-//        message_count
-//        archived
-//
-//        snippet
-//        group_snippet (always null)
+        String[] projection = new String[]{
+                "_id", "snippet", "date", "recipient_ids", "archived", "message_count",
+        };
+        List<String> groups = new ArrayList<>();
 
         try (Cursor cursor = cr.query(URI_CONVERSATIONS_SIMPLE, projection, null, null, "date DESC")) {
             if (cursor != null) {
@@ -169,78 +187,159 @@ public class AppRepository {
                 int snippetCol = cursor.getColumnIndex("snippet");
                 int dateCol = cursor.getColumnIndex("date");
                 int recipientCol = cursor.getColumnIndex("recipient_ids");
-                int groupSnippetCol = cursor.getColumnIndex("group_snippet");
                 int archivedCol = cursor.getColumnIndex("archived");
                 int messageCountCol = cursor.getColumnIndex("message_count");
 
                 while (cursor.moveToNext()) {
                     String threadId = cursor.getString(idCol);
                     int archived = cursor.getInt(archivedCol);
-                    int messageCount = cursor.getInt(messageCountCol);
-
-                    List<Integer> recipientIds = formatRecipients(cursor.getString(recipientCol));
-                    String mostRecentMessage;
-                    if(recipientIds.size() > 1)
-                        mostRecentMessage = cursor.getString(snippetCol);
-                    else
-                        mostRecentMessage = cursor.getString(groupSnippetCol);
-
+                    long messageCount = cursor.getLong(messageCountCol);
                     long dateMs = cursor.getLong(dateCol);
-                    String timestamp = DateFormat.format("hh:mm a", dateMs).toString();
 
-                    // The "snippet" column on this provider is unreliable for MMS/group
-                    // threads (it's frequently blank even though the thread has messages),
-                    // so fall back to reading the actual last message when it's empty.
-//                    if (mostRecentMessage == null || mostRecentMessage.trim().isEmpty()) {
-//                        mostRecentMessage = queryLastMessageSnippet(cr, threadId);
-//                    }
-
+                    List<Long> recipientIds = formatRecipients(cursor.getString(recipientCol));
                     boolean rando = true;
-                    for (int id: recipientIds){
+                    for (long id: recipientIds){
                         String tempName = recipientLookup(id).second;
                         if (tempName != null && !tempName.trim().isEmpty())
                             rando = false;
                     }
 
-                    conversationCache.add(new Conversation(recipientIds, mostRecentMessage, timestamp, "", threadId, rando, archived == 1, messageCount));
+                    String mostRecentMessage = "";
+                    if(recipientIds.size() == 1) {
+                        mostRecentMessage = cursor.getString(snippetCol);
+                    }else {
+                        groups.add(threadId);
+                    }
+
+                    conversationCache.put(threadId, new Conversation(recipientIds, mostRecentMessage, dateMs, "", threadId, rando, archived == 1, messageCount));
                 }
             }
         }
+
+        if (!groups.isEmpty()) {
+            final List<String> groupIdsToFetch = new ArrayList<>(groups);
+            groups.clear();
+
+            executor.execute(() -> {
+                getGroupLastMessages(cr, groupIdsToFetch);
+                List<Conversation> result = getConversationsList();
+                mainHandler.post(() -> callback.onResult(result));
+            });
+        }
     }
-    private List<Integer> formatRecipients(String rawIds){
-        List<Integer> temp = Collections.emptyList();
+    private void getGroupLastMessages(ContentResolver cr, List<String> groups){
+        if (groups.isEmpty()) return;
+
+        StringBuilder inClause = new StringBuilder();
+        for (int i = 0; i < groups.size(); i++) {
+            inClause.append(groups.get(i));
+            if (i < groups.size() - 1) inClause.append(",");
+        }
+
+        Map<Long, String> mmsIdToThreadIdMap = new HashMap<>();
+        StringBuilder mmsIdInClause = new StringBuilder();
+
+        String pduSelection = "thread_id IN (" + inClause + ")";
+
+        try (Cursor pduCursor = cr.query(Uri.parse("content://mms"), new String[]{"_id", "thread_id"}, pduSelection, null, "date DESC")) {
+            if (pduCursor != null) {
+                int idCol = pduCursor.getColumnIndexOrThrow("_id");
+                int threadCol = pduCursor.getColumnIndexOrThrow("thread_id");
+
+                while (pduCursor.moveToNext()) {
+                    long mmsId = pduCursor.getLong(idCol);
+                    String threadId = pduCursor.getString(threadCol);
+
+                    // Since results are 'date DESC', the first time we see threadId is its latest message
+                    if (!mmsIdToThreadIdMap.containsValue(threadId)) {
+                        mmsIdToThreadIdMap.put(mmsId, threadId);
+
+                        if (mmsIdInClause.length() > 0) mmsIdInClause.append(",");
+                        mmsIdInClause.append(mmsId);
+
+                        // Stop reading DB as soon as every group thread has found its latest MMS ID
+                        if (mmsIdToThreadIdMap.size() == groups.size()) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Query content://mms/part using the extracted MMS IDs and update conversationCache directly
+        if (mmsIdInClause.length() > 0) {
+            String partSelection = "ct='text/plain' AND mid IN (" + mmsIdInClause + ")";
+            try (Cursor c = cr.query(URI_MMS_PART, new String[]{"mid", "text"}, partSelection, null, null)) {
+                if (c != null) {
+                    int midCol = c.getColumnIndexOrThrow("mid");
+                    int textCol = c.getColumnIndexOrThrow("text");
+
+                    while (c.moveToNext()) {
+                        long mmsId = c.getLong(midCol);
+                        String text = c.getString(textCol);
+
+                        String threadId = mmsIdToThreadIdMap.get(mmsId);
+                        if (threadId != null) {
+                            Conversation group = conversationCache.get(threadId); // DIRECT LOOKUP
+                            if (group != null && text != null && !text.trim().isEmpty()) {
+                                group.setLastMessage(text);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        groups.clear();
+    }
+    private List<Long> formatRecipients(String rawIds){
+        List<Long> temp = new ArrayList<>();
         if (rawIds == null || rawIds.trim().isEmpty()) return temp;
 
         String[] ids = rawIds.split(" ");
         for (String id : ids) {
             if (id.isEmpty()) continue;
-            temp.add(Integer.parseInt(id));
+            temp.add(Long.parseLong(id));
         }
         return temp;
     }
-
-    public Pair<String, String> recipientLookup(int id){
+    public Pair<String, String> recipientLookup(Long id){
         // returns number, name
         return contactCache.get(id);
     }
-    public String recipientNameLookup(int id){
+    public String recipientNameLookup(Long id){
         // returns name? : number
         Pair<String, String> temp = contactCache.get(id);
-        if (!temp.second.trim().isEmpty()) return temp.second.trim();
-        return temp.first;
+        if(temp != null) {
+            if (temp.second != null && !temp.second.trim().isEmpty()) return temp.second.trim();
+            return temp.first;
+        }
+        return "Error";
     }
-
+    public String addressNameLookup(String phoneAddress){
+        String sanitized = sanitizeNumber(phoneAddress);
+        for (Pair<String, String> data : contactCache.values()) {
+            if (data != null && data.first != null) {
+                if (sanitizeNumber(data.first).equals(sanitized)) {
+                    return (data.second != null && !data.second.isEmpty()) ? data.second : sanitized;
+                }
+            }
+        }
+        return "Unknown";
+    }
     public void getConversations(Callback<List<Conversation>> callback) {
-        if (conversationCache != null) {
-            callback.onResult(conversationCache);
+        if (!conversationCache.isEmpty()) {
+            List<Conversation> result = getConversationsList();
+            callback.onResult(result);
             return;
         }
         executor.execute(() -> {
             loadContacts();
-//            printURI("TAGGYMCTAGFACE", URI_CANONICAL);
             //Initialize SentimentCache
-            queryConversations();
-            callback.onResult(conversationCache);
+            queryConversations(callback);
+
+            List<Conversation> result = getConversationsList();
+            callback.onResult(result);
         });
     }
 
@@ -257,13 +356,13 @@ public class AppRepository {
     /** Computes and caches sentiment for whatever conversations are currently cached. */
     public void analyzeSentiments(Callback<List<Conversation>> callback) {
         executor.execute(() -> {
-            List<Conversation> conversations = conversationCache;
+            Map<String, Conversation> conversations = conversationCache;
             if (conversations == null) {
                 callback.onResult(null);
                 return;
             }
             boolean updated = false;
-            for (Conversation conv : conversations) {
+            for (Conversation conv : conversations.values()) {
                 String threadId = conv.getThreadId();
                 String cached = sentimentCache.get(threadId);
                 if (cached != null) {
@@ -278,27 +377,227 @@ public class AppRepository {
                     updated = true;
                 }
             }
-            callback.onResult(updated ? conversations : null);
+            callback.onResult(updated ? new ArrayList<>(conversations.values()) : null);
         });
     }
+
+
+
+
+    public boolean checkConversationExists(long threadID){
+        Conversation convo = conversationCache.get(threadID);
+        if(convo!=null)
+            return true;
+        return false;
+    }
+    public boolean checkIsGroup(long threadID){
+        Conversation convo = conversationCache.get(threadID);
+        if(convo!=null)
+            return convo.getIsGroup();
+        return false;
+    }
+
+
+
+
+
+
+
+
 
     // =================================================================
     // Messages (ChatActivity thread view)
     // =================================================================
 
     public void getMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
-        String key = cacheKey(threadId, address);
-        List<SmsMessage> cached = messageCache.get(key);
-        if (cached != null) {
-            callback.onResult(cached);
+        if (!messageCache.isEmpty()) {
+            List<SmsMessage> result = getMessagesList();
+            callback.onResult(result);
             return;
         }
         executor.execute(() -> {
-//            List<SmsMessage> loaded = queryMessages(threadId, address);
-//            messageCache.put(key, loaded);
-//            callback.onResult(loaded);
+            queryMessages(Long.parseLong(threadId), callback);
+            List<SmsMessage> result = getMessagesList();
+            callback.onResult(result);
         });
     }
+
+    private void queryMessages(Long threadID, Callback<List<SmsMessage>> callback){
+        messageCache.clear();
+        Set<String> automatedIds = getAutomatedIds();
+        List<Long> mmsIds = new ArrayList<>();
+
+        ContentResolver cr = appContext.getContentResolver();
+        Uri threadUri = ContentUris.withAppendedId(Telephony.MmsSms.CONTENT_CONVERSATIONS_URI, threadID);
+
+//        printURI("DOOKIE", Telephony.Sms.CONTENT_URI);
+//        printURI("DOOKIE", Telephony.Mms.CONTENT_URI);
+
+        try (Cursor cursor = cr.query(
+                threadUri,
+                new String[] {
+                        Telephony.MmsSms._ID, Telephony.MmsSms.TYPE_DISCRIMINATOR_COLUMN, Telephony.Sms.THREAD_ID,
+                        Telephony.Sms.ADDRESS, Telephony.Sms.PERSON,
+                        Telephony.Sms.BODY, Telephony.Sms.DATE,
+                        Telephony.Sms.DATE_SENT, Telephony.Sms.READ,
+                        Telephony.Sms.STATUS,
+                        Telephony.Sms.TYPE, Telephony.Sms.SUBSCRIPTION_ID
+                }, null, null, "date ASC"
+        )) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idIdx = cursor.getColumnIndexOrThrow(Telephony.MmsSms._ID);
+                int typeDiscrimIdx = cursor.getColumnIndexOrThrow(Telephony.MmsSms.TYPE_DISCRIMINATOR_COLUMN);
+                int threadIdIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.THREAD_ID);
+                int addressIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS);
+                int bodyIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.BODY);
+                int dateIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE);
+                int dateSentIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.DATE_SENT);
+                int readIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.READ);
+                int statusIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.STATUS);
+                int typeIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.TYPE);
+                int subIdIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.SUBSCRIPTION_ID);
+                int personIdx = cursor.getColumnIndexOrThrow(Telephony.Sms.PERSON);
+
+                while (cursor.moveToNext()) {
+                    long id = cursor.getLong(idIdx);
+                    String transportType = cursor.getString(typeDiscrimIdx); // "sms" or "mms"
+                    long threadIdVal = cursor.getLong(threadIdIdx);
+                    String address = cursor.getString(addressIdx);
+                    String body = cursor.getString(bodyIdx);
+                    long date = cursor.getLong(dateIdx);
+                    long dateSent = cursor.getLong(dateSentIdx);
+                    int read = cursor.getInt(readIdx); // 0 (Unread), 1 (Read)
+                    int status = cursor.getInt(statusIdx); // outgoing message status, 0 (Complete/Delivered), 32 (Pending), 64 (Failed)
+                    int type = cursor.getInt(typeIdx);
+//                    Values: Maps to Telephony.Sms.MESSAGE_TYPE_* constants:
+//                    1 = MESSAGE_TYPE_INBOX (Received message)
+//                    2 = MESSAGE_TYPE_SENT (Sent message)
+//                    3 = MESSAGE_TYPE_DRAFT (Saved draft)
+//                    4 = MESSAGE_TYPE_OUTBOX (Queued to send)
+//                    5 = MESSAGE_TYPE_FAILED (Failed to send)
+//                    6 = MESSAGE_TYPE_QUEUED (Pending retry)
+                    int subId = cursor.getInt(subIdIdx);
+                    String name = null;
+                    long contactId = cursor.getLong(personIdx);
+                    if(contactId <= 0 && address != null && !address.trim().isEmpty())
+                        name = addressNameLookup(address);
+                    else if(contactId > 0)
+                        name = recipientNameLookup(contactId);
+
+                    boolean isMms = "mms".equalsIgnoreCase(transportType);
+                    if (isMms)
+                        mmsIds.add(id);
+                    messageCache.put(String.valueOf(id),
+                            new SmsMessage(id, threadIdVal,
+                                    address, body, name,
+                                    date, dateSent,
+                                    (read == 1), false, automatedIds.contains(id),
+                                    status, type, subId));
+//
+                }
+            }
+        }
+
+        if (!mmsIds.isEmpty()) {
+            final List<Long> mmsIdsToFetch = new ArrayList<>(mmsIds);
+            mmsIds.clear();
+
+            executor.execute(() -> {
+                getMmsMessages(cr, mmsIdsToFetch);
+                List<SmsMessage> result = getMessagesList();
+                mainHandler.post(() -> callback.onResult(result));
+            });
+        }
+    }
+
+    private void getMmsMessages(ContentResolver cr, List<Long> mmsIds){
+        Map<Long, MmsPartData> map = new HashMap<>();
+
+        // Build "mid IN (?, ?, ?...)" selection
+        // SQLite Limits: Note that SQLite limits parameters in an IN (...) clause
+        // (up to 999 elements). If you query thousands of messages at once,
+        // chop mmsIds into chunks of 500.
+
+        String[] idStrings = new String[mmsIds.size()];
+        StringBuilder inClause = new StringBuilder("mid IN (");
+        for (int i = 0; i < mmsIds.size(); i++) {
+            idStrings[i] = String.valueOf(mmsIds.get(i));
+            inClause.append(i == 0 ? "?" : ",?");
+        }
+        inClause.append(")");
+
+        // Query the parts table for ALL collected MMS IDs
+        Uri partUri = Uri.parse("content://mms/part");
+        String[] projection = new String[] { "_id", "mid", "ct", "text" };
+
+        try (Cursor cursor = cr.query(partUri, projection, inClause.toString(), idStrings, null)) {
+            if (cursor != null && cursor.moveToFirst()) {
+                int idIdx = cursor.getColumnIndexOrThrow("_id");
+                int midIdx = cursor.getColumnIndexOrThrow("mid"); // MMS Message ID
+                int ctIdx = cursor.getColumnIndexOrThrow("ct");   // Content-Type
+                int textIdx = cursor.getColumnIndexOrThrow("text");
+
+                do {
+                    long mmsId = cursor.getLong(midIdx);
+                    String partId = cursor.getString(idIdx);
+                    String ct = cursor.getString(ctIdx);
+
+                    if (ct == null) continue;
+
+                    if ("text/plain".equalsIgnoreCase(ct)) {
+                        String text = cursor.getString(textIdx);
+                        if (!TextUtils.isEmpty(text)) {
+                            messageCache.get(mmsId).setBody(text);
+                        }
+                    } else if (ct.startsWith("image/") || ct.startsWith("video/") || ct.startsWith("audio/")) {
+                        messageCache.get(mmsId).setMedia(
+                            Uri.parse("content://mms/part/" + partId)
+                        );
+                        messageCache.get(mmsId).setMediaType(ct);
+                    }
+                } while (cursor.moveToNext());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+
+
+
+
+    private String getMmsText(ContentResolver cr, long mmsId) {
+        Uri partUri = Uri.parse("content://mms/" + mmsId + "/part");
+        String mmsText = null;
+
+        Cursor partCursor = cr.query(
+                partUri,
+                null,
+                "ct='text/plain'",
+                null,
+                null
+        );
+
+        if (partCursor != null) {
+            try {
+                if (partCursor.moveToFirst()) {
+                    int bodyIndex = partCursor.getColumnIndex("text");
+                    mmsText = partCursor.getString(bodyIndex);
+                }
+            } finally {
+                partCursor.close();
+            }
+        }
+        return mmsText;
+    }
+
+
+
+
+
+
+
+
 
     public void refreshMessages(String threadId, String address, Callback<List<SmsMessage>> callback) {
         messageCache.remove(cacheKey(threadId, address));
@@ -307,11 +606,11 @@ public class AppRepository {
 
     /** Appends a just-sent message to the in-memory cache so the UI can show it instantly. */
     public void appendLocalMessage(String threadId, String address, SmsMessage message) {
-        List<SmsMessage> list = messageCache.get(cacheKey(threadId, address));
-        if (list != null) {
-            list.add(message);
-        }
-        conversationCache = null; // list-screen snippet/timestamp is now stale
+//        List<SmsMessage> list = messageCache.get(cacheKey(threadId, address));
+//        if (list != null) {
+//            list.add(message);
+//        }
+//        conversationCache.clear(); // list-screen snippet/timestamp is now stale
     }
 
     private String cacheKey(String threadId, String address) {
@@ -340,36 +639,6 @@ public class AppRepository {
 
 
 
-    /**
-     * Fallback for threads whose "snippet" column came back empty (mainly MMS/group
-     * threads). Looks up the most recent message directly and, for MMS rows whose text
-     * lives in mms/part rather than the unified body column, reads it from there.
-     */
-    private String queryLastMessageSnippet(ContentResolver cr, String threadId) {
-        Uri uri = Uri.withAppendedPath(URI_CONVERSATIONS, threadId);
-        String[] projection = new String[]{"_id", "body", "msg_box"};
-
-        try (Cursor cursor = cr.query(uri, projection, null, null, "date DESC LIMIT 1")) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int bodyIdx = cursor.getColumnIndex("body");
-                String body = bodyIdx != -1 ? cursor.getString(bodyIdx) : null;
-                if (body != null && !body.trim().isEmpty()) {
-                    return body;
-                }
-
-                int idIdx = cursor.getColumnIndex("_id");
-                int msgBoxIdx = cursor.getColumnIndex("msg_box");
-                boolean isMms = msgBoxIdx != -1 && cursor.getInt(msgBoxIdx) != 0 && !cursor.isNull(msgBoxIdx);
-                String msgId = idIdx != -1 ? cursor.getString(idIdx) : null;
-                if (isMms && msgId != null) {
-                    return queryMmsSnippet(cr, msgId);
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return "";
-    }
 
     /** Reads the text (or a media placeholder) for a single MMS message's parts. */
     private String queryMmsSnippet(ContentResolver cr, String mid) {
@@ -398,37 +667,7 @@ public class AppRepository {
         return "";
     }
 
-    private Map<String, String> fetchAllCanonicalAddresses(ContentResolver cr) {
-        Map<String, String> map = new HashMap<>();
-        try (Cursor cursor = cr.query(URI_CANONICAL, new String[]{"_id", "address"}, null, null, null)) {
-            if (cursor != null) {
-                int idIdx = cursor.getColumnIndex("_id");
-                int addrIdx = cursor.getColumnIndex("address");
-                while (cursor.moveToNext()) {
-                    map.put(cursor.getString(idIdx), cursor.getString(addrIdx));
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return map;
-    }
 
-    private String resolveAddressesFromMap(String recipientIds, Map<String, String> addressMap) {
-        if (recipientIds == null || recipientIds.trim().isEmpty()) return "";
-        String[] ids = recipientIds.split(" ");
-        StringBuilder addressList = new StringBuilder();
-        for (String id : ids) {
-            if (id.isEmpty()) continue;
-            String address = addressMap.get(id);
-            if (address != null) {
-                if (addressList.length() > 0) addressList.append(", ");
-                addressList.append(address);
-            }
-        }
-        return addressList.toString();
-    }
-/*
     private List<SmsMessage> queryMessages(String threadId, String address) {
         List<SmsMessage> messages = new ArrayList<>();
         ContentResolver cr = appContext.getContentResolver();
@@ -437,7 +676,8 @@ public class AppRepository {
                 || (threadId != null && !threadId.isEmpty() && isGroupThread(cr, threadId));
 
         Set<String> autoSet = getAutomatedIds();
-        Map<String, String> contacts = getContactCache();
+        Map<String, String> contacts = null;
+//        Map<String, String> contacts = getContactCache();
 
         Uri uri;
         String selection = null;
@@ -530,13 +770,13 @@ public class AppRepository {
             boolean isAutomated = row.isSent && (autoSet.contains(body) || autoSet.contains(String.valueOf(row.dateMs)));
 
             if (!body.isEmpty() || mediaUrl != null) {
-                messages.add(new SmsMessage(id, body, row.dateMs, row.isSent, isAutomated, row.status, sender, isGroup, mediaUrl, mediaType));
+//                messages.add(new SmsMessage(id, body, row.dateMs, row.isSent, isAutomated, row.status, sender, isGroup, mediaUrl, mediaType));
             }
         }
 
         return messages;
     }
-    */
+
 
     private static class Row {
         String id;

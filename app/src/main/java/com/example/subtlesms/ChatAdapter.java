@@ -1,5 +1,13 @@
 package com.example.subtlesms;
 
+import static com.example.subtlesms.MessageStatus.AUTO_SENT_FAILED;
+import static com.example.subtlesms.SmsMessage.DRAFT_MESSAGE;
+import static com.example.subtlesms.SmsMessage.FAILED_SEND;
+import static com.example.subtlesms.SmsMessage.QUEUED_SEND;
+import static com.example.subtlesms.SmsMessage.RECEIVED_MESSAGE;
+import static com.example.subtlesms.SmsMessage.RETRYING_SEND;
+import static com.example.subtlesms.SmsMessage.SENT_MESSAGE;
+
 import android.content.Context;
 import android.graphics.drawable.Drawable;
 import android.view.LayoutInflater;
@@ -21,6 +29,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 /**
  * Adapter only - no data loading, no sentiment/auto-reply logic. Message
@@ -45,6 +54,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private final List<Object> displayItems = new ArrayList<>();
     private final Map<Integer, Drawable> drawableCache = new HashMap<>();
     private String searchQuery; // null/blank = normal date-grouped view
+    private AppRepository repository;
 
     private static class DateHeader {
         final String label;
@@ -130,6 +140,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     @NonNull
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+        repository = AppRepository.getInstance();
         if (viewType == TYPE_DATE_HEADER) {
             View view = LayoutInflater.from(parent.getContext())
                     .inflate(R.layout.item_date_separator, parent, false);
@@ -153,7 +164,7 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         SmsMessage msg = (SmsMessage) item;
         Context context = holder.itemView.getContext();
 
-        int textResId = msg.isAutomated() ? R.color.AutoReplyColor : R.color.BorderBubbleColor;
+        int textResId = msg.getIsAutomated() ? R.color.AutoReplyColor : R.color.BorderBubbleColor;
         if (holder.tvBody != null) {
             holder.tvBody.setTextColor(ContextCompat.getColor(context, textResId));
         }
@@ -164,11 +175,16 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         }
 
         if (holder.tvSenderName != null) {
-            if (!msg.isSent() && msg.isGroup()) {
+            if(repository.checkConversationExists(msg.getThreadId())) {
+                if (!msg.isSent() && repository.checkIsGroup(msg.getThreadId())) {
+                    holder.tvSenderName.setVisibility(View.VISIBLE);
+                    holder.tvSenderName.setText(msg.getName() != null ? msg.getName() : "Unknown");
+                } else {
+                    holder.tvSenderName.setVisibility(View.GONE);
+                }
+            }else {
                 holder.tvSenderName.setVisibility(View.VISIBLE);
-                holder.tvSenderName.setText(msg.getSenderName() != null ? msg.getSenderName() : "Unknown");
-            } else {
-                holder.tvSenderName.setVisibility(View.GONE);
+                holder.tvSenderName.setText("Loading");
             }
         }
 
@@ -179,59 +195,74 @@ public class ChatAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             }
         }
 
-        if (holder.layoutBubble != null && msg.getStatus() != null) {
-            int drawableResId = getDrawableForStatus(msg.getStatus());
-            if (drawableResId != 0) {
-                Drawable bgDrawable = getCachedDrawable(context, drawableResId);
-                if (holder.layoutBubble.getBackground() != bgDrawable) {
-                    holder.layoutBubble.setBackground(bgDrawable);
-                }
-            }
+        setBubbleType(context, holder, msg.getStatus(), msg.getIsAutomated());
 
-            if (holder.tvBody != null) {
-                switch (msg.getStatus()) {
-                    case SENT_PENDING:
-                    case MANUAL_SENT_FAILED:
-                    case AUTO_SENT_FAILED:
-                        holder.tvBody.setAlpha(0.5f);
-                        break;
-                    default:
-                        break;
-                }
-            }
-        }
-
+        // VIDEO AND AUDIO IGNORED RIGHT NOW
         if (holder.ivMediaContent != null) {
-            if (msg.hasMedia() && "image".equalsIgnoreCase(msg.getMediaType())) {
-                holder.ivMediaContent.setVisibility(View.VISIBLE);
-                Glide.with(context).load(msg.getMediaUri()).centerCrop().into(holder.ivMediaContent);
-            } else {
+            String mediaType = msg.getMediaType();
+            if (mediaType != null) {
+                if (mediaType.startsWith("image/")) {
+                    holder.ivMediaContent.setVisibility(View.VISIBLE);
+                    Glide.with(context).load(msg.getMediaUri()).centerCrop().into(holder.ivMediaContent);
+                }
+                if (mediaType.startsWith("video/")) {
+                    holder.ivMediaContent.setVisibility(View.GONE);
+                    holder.ivMediaContent.setImageDrawable(null);
+                }
+                if (mediaType.startsWith("audio/")) {
+                    holder.ivMediaContent.setVisibility(View.GONE);
+                    holder.ivMediaContent.setImageDrawable(null);
+                }
+            }else {
                 holder.ivMediaContent.setVisibility(View.GONE);
                 holder.ivMediaContent.setImageDrawable(null);
             }
         }
     }
 
-    private int getDrawableForStatus(MessageStatus status) {
-        if (status == null) return 0;
-        switch (status) {
-            case SENT_PENDING: return R.drawable.bg_bubble_sent;
-            case MANUAL_SENT_DELIVERED: return R.drawable.bg_bubble_solid_border;
-            case AUTO_SENT_DELIVERED: return R.drawable.bg_bubble_dashed_border;
-            case MANUAL_SENT_FAILED: return R.drawable.bg_bubble_red_solid_border;
-            case AUTO_SENT_FAILED: return R.drawable.bg_bubble_red_dashed_border;
-            case I_RECEIVED: return R.drawable.bg_bubble_received;
-            default: return 0;
+    private void setBubbleType(Context context, ViewHolder holder, int status, boolean isAutomated) {
+        int drawableResId = 0;
+        if (holder.layoutBubble != null) {
+            switch (status) {
+                case RECEIVED_MESSAGE:
+                    drawableResId = R.drawable.bg_bubble_received;
+                    break;
+                case SENT_MESSAGE:
+                    drawableResId = isAutomated ? R.drawable.bg_bubble_dashed_border : R.drawable.bg_bubble_solid_border;
+                    break;
+                case DRAFT_MESSAGE:
+                    drawableResId = R.drawable.bg_bubble_sent;
+                    break;
+                case QUEUED_SEND:
+                    drawableResId = R.drawable.bg_bubble_sent;
+                    break;
+                case FAILED_SEND:
+                    drawableResId = isAutomated ? R.drawable.bg_bubble_red_dashed_border : R.drawable.bg_bubble_red_solid_border;
+                    break;
+                case RETRYING_SEND:
+                    drawableResId = R.drawable.bg_bubble_sent;
+                    break;
+                default:
+                    drawableResId = 0;
+                    break;
+            }
+            if (!drawableCache.containsKey(drawableResId) && drawableResId != 0) {
+                Drawable drawable = ContextCompat.getDrawable(context, drawableResId);
+                if (drawable != null) drawableCache.put(drawableResId, drawable);
+            }
+
+            if (holder.layoutBubble.getBackground() != drawableCache.get(drawableResId)) {
+                holder.layoutBubble.setBackground(drawableCache.get(drawableResId));
+            }
+        }
+
+        if (holder.tvBody != null) {
+            if (status == DRAFT_MESSAGE || status == FAILED_SEND || status == RETRYING_SEND || status == QUEUED_SEND)
+                holder.tvBody.setAlpha(0.5f);
         }
     }
 
-    private Drawable getCachedDrawable(Context context, int resId) {
-        if (!drawableCache.containsKey(resId)) {
-            Drawable drawable = ContextCompat.getDrawable(context, resId);
-            if (drawable != null) drawableCache.put(resId, drawable);
-        }
-        return drawableCache.get(resId);
-    }
+
 
     @Override
     public int getItemCount() {

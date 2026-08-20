@@ -14,6 +14,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.telephony.SmsManager;
+import android.util.Log;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageButton;
@@ -63,9 +64,9 @@ public class ChatActivity extends AppCompatActivity {
         @Override
         public void onReceive(Context context, Intent intent) {
             for (SmsMessage msg : messagesList) {
-                if (msg.isSent() && msg.getStatus() == MessageStatus.SENT_PENDING) {
-                    msg.setStatus(msg.isAutomated() ? MessageStatus.AUTO_SENT_DELIVERED : MessageStatus.MANUAL_SENT_DELIVERED);
-                }
+//                if (msg.isSent() && msg.getStatus() == MessageStatus.SENT_PENDING) {
+//                    msg.setStatus(msg.isAutomated() ? MessageStatus.AUTO_SENT_DELIVERED : MessageStatus.MANUAL_SENT_DELIVERED);
+//                }
             }
             adapter.notifyDataSetChanged();
         }
@@ -74,13 +75,9 @@ public class ChatActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            getWindow().setNavigationBarContrastEnforced(false);
-        }
         setContentView(R.layout.activity_chat);
 
-        repository = AppRepository.getInstance(this);
+        repository = AppRepository.getInstance();
 
         ImageButton btnAttachMedia = findViewById(R.id.btnAttachMedia);
         btnAttachMedia.setOnClickListener(v -> pickMediaLauncher.launch(
@@ -91,7 +88,6 @@ public class ChatActivity extends AppCompatActivity {
 
         String contactName = getIntent().getStringExtra("CONTACT_NAME");
         threadId = getIntent().getStringExtra("THREAD_ID");
-        recipientAddress = getIntent().getStringExtra("ADDRESS");
 
         TextView tvChatTitle = findViewById(R.id.tvChatTitle);
         if (tvChatTitle != null && contactName != null) {
@@ -113,16 +109,7 @@ public class ChatActivity extends AppCompatActivity {
 
         btnSend.setOnClickListener(v -> sendMessage());
 
-        View rootLayout = findViewById(R.id.rootChatLayout);
-        LinearLayout layoutInputArea = findViewById(R.id.layoutInputArea);
 
-        ViewCompat.setOnApplyWindowInsetsListener(rootLayout, (v, insets) -> {
-            Insets navigationBars = insets.getInsets(WindowInsetsCompat.Type.navigationBars());
-            Insets ime = insets.getInsets(WindowInsetsCompat.Type.ime());
-            int bottomInset = Math.max(navigationBars.bottom, ime.bottom);
-            layoutInputArea.setTranslationY(-bottomInset);
-            return insets;
-        });
 
         smsObserver = new ContentObserver(new Handler(Looper.getMainLooper())) {
             @Override
@@ -209,12 +196,12 @@ public class ChatActivity extends AppCompatActivity {
             }
 
             long nowMs = System.currentTimeMillis();
-            SmsMessage sentMsg = new SmsMessage(String.valueOf(nowMs), messageText, nowMs, true, false, -1, "Me", isGroup, null, "text");
-
-            messagesList.add(sentMsg);
-            adapter.refresh();
-            rvMessages.scrollToPosition(adapter.getItemCount() - 1);
-            repository.appendLocalMessage(threadId, recipientAddress, sentMsg);
+//            SmsMessage sentMsg = new SmsMessage(String.valueOf(nowMs), messageText, nowMs, true, false, -1, "Me", isGroup, null, "text");
+//
+//            messagesList.add(sentMsg);
+//            adapter.refresh();
+//            rvMessages.scrollToPosition(adapter.getItemCount() - 1);
+//            repository.appendLocalMessage(threadId, recipientAddress, sentMsg);
 
             etMessageInput.setText("");
         } catch (Exception e) {

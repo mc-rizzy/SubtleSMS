@@ -3,9 +3,14 @@ package com.example.subtlesms;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.RenderEffect;
+import android.graphics.Shader;
+import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -21,7 +26,10 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+
 import com.example.subtlesms.Conversation;
 
 /**
@@ -32,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
 
     private RecyclerView rvConversations;
     private ConversationAdapter adapter;
-    private final List<Conversation> conversationList = new ArrayList<>();
+    private List<Conversation> conversationList = new ArrayList<>();
     private AppRepository repository;
 
     private final ActivityResultLauncher<String[]> smsPermissionLauncher =
@@ -145,19 +153,12 @@ public class MainActivity extends AppCompatActivity {
                     Intent intent = new Intent(MainActivity.this, ChatActivity.class);
                     intent.putExtra("CONTACT_NAME", conversation.getConversationName());
                     intent.putExtra("THREAD_ID", conversation.getThreadId());
-//                    intent.putExtra("ADDRESS", conversation.getAddress());
                     startActivity(intent);
                 });
                 rvConversations.setAdapter(adapter);
             } else {
                 adapter.notifyDataSetChanged();
             }
-
-//            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
-//                repository.resolveContactNames(updated -> {
-//                    if (updated != null) runOnUiThread(() -> adapter.notifyDataSetChanged());
-//                });
-//            }
 
             repository.analyzeSentiments(updated -> {
                 if (updated != null) runOnUiThread(() -> adapter.notifyDataSetChanged());

@@ -2,6 +2,7 @@ package com.example.subtlesms;
 
 import android.content.Context;
 import android.content.res.ColorStateList;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -10,8 +11,11 @@ import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.core.view.ViewCompat;
 import androidx.recyclerview.widget.RecyclerView;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Adapter only - no data model, no data loading. See Conversation.java for
@@ -23,11 +27,11 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
         void onItemClick(Conversation conversation);
     }
 
-    private final List<Conversation> list;
+    private List<Conversation> list = new ArrayList<>();
     private final OnItemClickListener listener;
 
     public ConversationAdapter(List<Conversation> list, OnItemClickListener listener) {
-        this.list = list;
+        updateData(list);
         this.listener = listener;
     }
 
@@ -37,6 +41,16 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
         View view = LayoutInflater.from(parent.getContext())
                 .inflate(R.layout.item_conversation, parent, false);
         return new ViewHolder(view);
+    }
+
+    public void updateData(List<Conversation> newList) {
+        list.clear();
+        for (Conversation convo : newList) {
+            if (!convo.getArchived()) {
+                list.add(convo);
+            }
+        }
+        notifyDataSetChanged();
     }
 
     @Override
@@ -49,6 +63,7 @@ public class ConversationAdapter extends RecyclerView.Adapter<ConversationAdapte
         holder.itemView.setAlpha(item.getRando() ? 0.5f : 1.0f);
 
         String sentiment = item.getSentiment();
+
         if (sentiment != null && !sentiment.trim().isEmpty()) {
             holder.tvSentiment.setText(sentiment);
             holder.tvSentiment.setVisibility(View.VISIBLE);

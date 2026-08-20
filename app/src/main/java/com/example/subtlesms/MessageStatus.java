@@ -1,5 +1,7 @@
 package com.example.subtlesms;
 
+import android.provider.Telephony;
+
 public enum MessageStatus {
     SENT_PENDING("Pending"),                // sent, pending/not delivered (50% opacity)
     MANUAL_SENT_DELIVERED("Delivered"),     // manual sent & delivered (solid border)
@@ -13,7 +15,6 @@ public enum MessageStatus {
     MessageStatus(String label) {
         this.label = label;
     }
-
     public String getLabel() {
         return label;
     }

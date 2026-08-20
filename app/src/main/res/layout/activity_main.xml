@@ -5,7 +5,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fitsSystemWindows="true"
+    android:fitsSystemWindows="false"
     android:background="@android:color/black"
     android:orientation="vertical">
 
@@ -15,7 +15,45 @@
         android:layout_height="match_parent"
         android:orientation="vertical">
 
-        <!-- Header Bar -->
+        <!-- Conversation List -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvConversations"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
+                tools:listitem="@layout/item_conversation"
+                android:clipToPadding="false"
+                android:paddingTop="60dp"
+                tools:itemCount="5" />
+
+            <TextView
+                android:id="@+id/tvSearchEmptyState"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|center_horizontal"
+                android:paddingTop="48dp"
+                android:text="No conversations found"
+                android:textColor="#808080"
+                android:textSize="14sp"
+                android:gravity="center"
+                android:visibility="gone" />
+
+        </FrameLayout>
+
+    </LinearLayout>
+
+    <!-- Header Bar -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/gradient_down"
+        android:paddingTop="20dp"
+        android:paddingBottom="8dp">
         <LinearLayout
             android:id="@+id/layoutHeader"
             android:layout_width="match_parent"
@@ -31,7 +69,7 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:padding="8dp"
-                android:text="Messages"
+                android:text=""
                 android:textColor="@color/titleBar"
                 android:textSize="24sp"
                 android:textStyle="bold" />
@@ -52,6 +90,7 @@
                 android:maxLines="1"
                 android:inputType="text"
                 android:imeOptions="actionSearch"
+                android:layout_gravity="end"
                 android:visibility="gone" />
 
             <ImageButton
@@ -65,36 +104,7 @@
                 app:tint="@color/titleBar" />
 
         </LinearLayout>
-
-        <!-- Conversation List -->
-        <FrameLayout
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1">
-
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvConversations"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                app:layoutManager="androidx.recyclerview.widget.LinearLayoutManager"
-                tools:listitem="@layout/item_conversation"
-                tools:itemCount="5" />
-
-            <TextView
-                android:id="@+id/tvSearchEmptyState"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_gravity="top|center_horizontal"
-                android:paddingTop="48dp"
-                android:text="No conversations found"
-                android:textColor="#808080"
-                android:textSize="14sp"
-                android:gravity="center"
-                android:visibility="gone" />
-
-        </FrameLayout>
-
-    </LinearLayout>
+    </FrameLayout>
 
     <!-- Floating Action Button at Bottom Right -->
     <com.google.android.material.floatingactionbutton.FloatingActionButton
@@ -106,7 +116,7 @@
         android:layout_marginStart="16dp"
         android:layout_marginTop="16dp"
         android:layout_marginEnd="16dp"
-        android:layout_marginBottom="16dp"
+        android:layout_marginBottom="136dp"
         app:fabCustomSize="40dp"
 
         android:contentDescription="New Conversation"
