@@ -76,10 +76,11 @@ public class AppRepository {
     private static final String KEY_AUTO_MSG_IDS = "auto_message_ids";
 
 //    private static final Uri URI_MMS_PART = Uri.parse("content://mms/part");
-//    private static final Uri URI_MMS_ADDR = Uri.parse("content://mms/addr");
-    private static final Uri URI_MMS_PART = Uri.parse("content://mms/part");
+    private static Uri URI_MMS_ADDR;
+    private static Uri URI_MMS_PART;
+    private static Uri URI_MMS;
 //    private static final Uri URI_CONVERSATIONS = Uri.parse("content://mms-sms/conversations/");
-    private Uri URI_MMS_ADDR, URI_SMS, URI_CONVERSATIONS;
+    private Uri URI_SMS, URI_CONVERSATIONS;
     private static final Uri URI_CANONICAL = Uri.parse("content://mms-sms/canonical-addresses");
 //    private static final Uri URI_SMS = Uri.parse("content://sms/");
     private static final Uri URI_CONVERSATIONS_SIMPLE = Uri.parse("content://mms-sms/conversations?simple=true");
@@ -239,14 +240,16 @@ public class AppRepository {
         }
 
         Map<Long, String> mmsIdToThreadIdMap = new HashMap<>();
+        Map<Long, Boolean> mmsIdIsOutgoing = new HashMap<>();
         StringBuilder mmsIdInClause = new StringBuilder();
 
         String pduSelection = "thread_id IN (" + inClause + ")";
-
-        try (Cursor pduCursor = cr.query(Uri.parse("content://mms"), new String[]{"_id", "thread_id"}, pduSelection, null, "date DESC")) {
+        if(URI_MMS == null) URI_MMS = Uri.parse("content://mms");
+        try (Cursor pduCursor = cr.query(URI_MMS, new String[]{"_id", "thread_id", "msg_box"}, pduSelection, null, "date DESC")) {
             if (pduCursor != null) {
                 int idCol = pduCursor.getColumnIndexOrThrow("_id");
                 int threadCol = pduCursor.getColumnIndexOrThrow("thread_id");
+                int boxCol = pduCursor.getColumnIndexOrThrow("msg_box");
 
                 while (pduCursor.moveToNext()) {
                     long mmsId = pduCursor.getLong(idCol);
@@ -255,6 +258,7 @@ public class AppRepository {
                     // Since results are 'date DESC', the first time we see threadId is its latest message
                     if (!mmsIdToThreadIdMap.containsValue(threadId)) {
                         mmsIdToThreadIdMap.put(mmsId, threadId);
+                        mmsIdIsOutgoing.put(mmsId, pduCursor.getInt(boxCol) == 2); // MESSAGE_BOX_SENT
 
                         if (mmsIdInClause.length() > 0) mmsIdInClause.append(",");
                         mmsIdInClause.append(mmsId);
@@ -268,29 +272,41 @@ public class AppRepository {
             }
         }
 
+        if (mmsIdInClause.length() == 0) { groups.clear(); return; }
+
+
         // 3. Query content://mms/part using the extracted MMS IDs and update conversationCache directly
-        if (mmsIdInClause.length() > 0) {
-            String partSelection = "ct='text/plain' AND mid IN (" + mmsIdInClause + ")";
-            try (Cursor c = cr.query(URI_MMS_PART, new String[]{"mid", "text"}, partSelection, null, null)) {
-                if (c != null) {
-                    int midCol = c.getColumnIndexOrThrow("mid");
-                    int textCol = c.getColumnIndexOrThrow("text");
+        if (URI_MMS_PART == null) URI_MMS_PART = Uri.parse("content://mms/part");
+        try (Cursor c = cr.query(URI_MMS_PART, new String[]{"mid", "ct", "text"},
+                "mid IN (" + mmsIdInClause + ")", null, null)) {
+            if (c != null) {
+                int midCol = c.getColumnIndexOrThrow("mid");
+                int ctCol = c.getColumnIndexOrThrow("ct");
+                int textCol = c.getColumnIndexOrThrow("text");
 
-                    while (c.moveToNext()) {
-                        long mmsId = c.getLong(midCol);
-                        String text = c.getString(textCol);
+                while (c.moveToNext()) {
+                    long mmsId = c.getLong(midCol);
+                    String ct = c.getString(ctCol);
+                    if (ct == null) continue;
+                    String threadId = mmsIdToThreadIdMap.get(mmsId);
+                    Conversation group = conversationCache.get(threadId);
 
-                        String threadId = mmsIdToThreadIdMap.get(mmsId);
-                        if (threadId != null) {
-                            Conversation group = conversationCache.get(threadId); // DIRECT LOOKUP
-                            if (group != null && text != null && !text.trim().isEmpty()) {
+                    if(group != null && threadId != null)
+                        if (ct.equalsIgnoreCase("text/plain")) {
+                            String text = c.getString(textCol);
+                            if (text != null && !text.trim().isEmpty())
                                 group.setLastMessage(text);
-                            }
+                        } else {
+                            boolean outgoing = Boolean.TRUE.equals(mmsIdIsOutgoing.get(mmsId));
+                            StringBuilder temp = new StringBuilder(outgoing? "Sent " : "Received ");
+                            if (ct.startsWith("image/")) temp.append("an image");
+                            else if (ct.startsWith("video/")) temp.append("a video");
+                            else temp.append("a media file");
+                            group.setLastMessage(temp.toString());
                         }
                     }
                 }
             }
-        }
 
         groups.clear();
     }
@@ -515,6 +531,7 @@ public class AppRepository {
 
             executor.execute(() -> {
                 getMmsMessages(cr, mmsIdsToFetch);
+                resolveMmsSenders(cr, mmsIdsToFetch);
                 List<SmsMessage> result = getMessagesList();
                 result.sort((a, b) -> Long.compare(a.getTimestamp(), b.getTimestamp()));
                 mainHandler.post(() -> callback.onResult(result));
@@ -568,6 +585,33 @@ public class AppRepository {
                         messageCache.get(String.valueOf(mmsId)).setMediaType(ct);
                     }
                 } while (cursor.moveToNext());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void resolveMmsSenders(ContentResolver cr, List<Long> mmsIds) {
+        if (mmsIds.isEmpty()) return;
+        if(URI_MMS_ADDR == null) URI_MMS_ADDR = Uri.parse("content://mms/addr");
+        StringBuilder idClause = new StringBuilder();
+        for (int i = 0; i < mmsIds.size(); i++) {
+            if (i > 0) idClause.append(",");
+            idClause.append(mmsIds.get(i));
+        }
+        String selection = "type=137 AND msg_id IN (" + idClause + ")"; // 137 = FROM
+        try (Cursor cursor = cr.query(URI_MMS_ADDR, new String[]{"msg_id", "address"}, selection, null, null)) {
+            if (cursor != null) {
+                int midIdx = cursor.getColumnIndexOrThrow("msg_id");
+                int addrIdx = cursor.getColumnIndexOrThrow("address");
+                while (cursor.moveToNext()) {
+                    long mid = cursor.getLong(midIdx);
+                    String address = cursor.getString(addrIdx);
+                    SmsMessage msg = messageCache.get(String.valueOf(mid));
+                    if (msg != null && address != null && !"insert-address-token".equals(address)) {
+                        msg.setName(addressNameLookup(address));
+                    }
+                }
             }
         } catch (Exception e) {
             e.printStackTrace();

@@ -87,7 +87,9 @@ public class ChatActivity extends AppCompatActivity {
             Iterator<SmsMessage> it = pendingSentMessages.iterator();
             while (it.hasNext()) {
                 SmsMessage msg = it.next();
-                String realId = findJustSentMessageId(context, msg.getAddress(), msg.getBody());
+                boolean isGroup = repository.checkIsGroup(msg.getThreadId());
+                String realId = findJustSentMessageId(context, isGroup,
+                        String.valueOf(msg.getThreadId()), msg.getAddress(), msg.getBody());
                 if (realId != null) {
                     long oldId = msg.getId();
                     msg.setId(Long.parseLong(realId));
@@ -99,10 +101,17 @@ public class ChatActivity extends AppCompatActivity {
         }
     };
 
-    private String findJustSentMessageId(Context context, String address, String body) {
+    private String findJustSentMessageId(Context context, boolean isGroup, String threadId, String address, String body) {
         Uri uri = Uri.parse("content://sms/sent");
-        String selection = "address = ? AND body = ?";
-        String[] selectionArgs = new String[]{address, body};
+        String selection;
+        String[] selectionArgs;
+        if (isGroup) {
+            selection = "thread_id = ? AND body = ?";
+            selectionArgs = new String[]{threadId, body};
+        } else {
+            selection = "address = ? AND body = ?";
+            selectionArgs = new String[]{address, body};
+        }
         try (Cursor cursor = context.getContentResolver().query(
                 uri, new String[]{"_id"}, selection, selectionArgs, "date DESC LIMIT 1")) {
             if (cursor != null && cursor.moveToFirst()) {

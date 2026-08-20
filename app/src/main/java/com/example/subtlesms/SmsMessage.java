@@ -8,7 +8,7 @@ public class SmsMessage {
     private final long threadId;
     private final String address;
     private String body;
-    private final String name;
+    private String name;
     private long date;
     private final long dateSent;
     private boolean read;
@@ -60,7 +60,11 @@ public class SmsMessage {
     }
 
     public void setBody(String newBody){
-        this.body+=newBody;
+        if (this.body == null || this.body.isEmpty()) {
+            this.body = newBody;
+        } else {
+            this.body += newBody;
+        }
     }
     public long getId() {return this.id;}
     public void setId(long newId) {this.id = newId;}
@@ -104,6 +108,7 @@ public class SmsMessage {
         return hasMedia;
     }
     public Uri getMediaUri(){ return mediaContent; }
+    public void setName(String newName) {this.name = newName;}
 
     private MessageStatus determineStatus(boolean isSent, boolean isAutomated, int systemStatus) {
         if (!isSent) {
